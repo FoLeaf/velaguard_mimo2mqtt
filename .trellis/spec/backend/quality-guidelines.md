@@ -6,9 +6,16 @@
 
 ## Current State
 
-No language, formatter, linter, type checker, build system, test framework, CI platform, container format, or deployment target is confirmed. Select these with the first implementation and update this file with exact commands.
+First-slice toolchain:
 
-Quality is currently defined by protocol correctness, safe failure, security boundaries, and testable isolation of cloud providers.
+- Language: Python 3.12+
+- Test runner: `pytest`
+- Package: `pip install -e ".[dev]"` from repo root (`pyproject.toml`)
+- Default verification: `pytest tests/unit tests/contract -q`
+- Integration: `pytest tests/integration -q` (requires local Mosquitto; skips if broker down)
+- Local Broker: `docker compose -f deploy/dev/docker-compose.yml up -d`
+
+Formatter/linter/typechecker/CI remain optional until configured. Quality is still defined primarily by protocol correctness, safe failure, security boundaries, and provider isolation.
 
 ## Required Patterns
 
@@ -34,7 +41,9 @@ Quality is currently defined by protocol correctness, safe failure, security bou
 - Exposing complete tokens, product secrets, MiMo API keys, or OTA private keys.
 - Representing AI-generated configuration as active without device validation and confirmation.
 - Treating `VG_BUILD_MODE=test|production` as a confirmed backend variable. It is a device build boundary; the backend's configuration mechanism remains undecided.
-- Adding FastAPI, SQLAlchemy, PostgreSQL, or another unconfirmed stack as a documented requirement.
+- Adding FastAPI, SQLAlchemy, PostgreSQL, or another unconfirmed stack as a documented requirement beyond the selected Python MQTT worker.
+- Blocking the paho network loop with provider work (duplicates and other devices must still be serviced).
+- Claiming in-memory idempotency is restart-safe.
 
 ## Minimum Test Coverage
 

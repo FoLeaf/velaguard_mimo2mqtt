@@ -6,9 +6,9 @@
 
 ## Current State
 
-No database, ORM, query library, schema language, or migration tool is confirmed. Do not treat any storage technology as a project requirement.
+No database, ORM, query library, schema language, or migration tool is confirmed for production. Do not treat any storage technology as a production requirement.
 
-Persistence must begin from the protocol behavior below. An in-memory implementation may be used only for an explicitly disposable local prototype; it must not be presented as restart-safe production behavior.
+**First slice:** `ai_bridge.persistence.idempotency.InMemoryIdempotencyStore` is the only store. It is process-local, thread-safe, and **explicitly disposable**. README and operator docs must say restart clears dedupe/replay state. It must not be described as production restart-safe behavior.
 
 ## AI Request Idempotency
 

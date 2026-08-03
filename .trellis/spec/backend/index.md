@@ -12,7 +12,7 @@ The confirmed cloud role is to connect to the MQTT Broker as an independent clie
 
 Frontend specs are intentionally absent because this repository owns backend cloud services only.
 
-There is no business code yet. No backend language, web framework, MQTT client, database, ORM, migration tool, test framework, deployment platform, or code-style tool has been selected. Do not infer FastAPI, SQLAlchemy, PostgreSQL, or equivalent technologies as project conventions.
+The first business slice exists under `ai_bridge/`. Selected implementation choices for that slice are listed below. Unlisted tools remain undecided; do not invent FastAPI, SQLAlchemy, PostgreSQL, or other stacks as project conventions.
 
 ## Sources of Truth
 
@@ -36,17 +36,25 @@ When these guidelines and either root document disagree, stop and resolve the di
 - AI output is advisory. The device performs schema validation, risk checks, test reads where applicable, and local user confirmation before applying write-like changes.
 - Cloud processing failures must not compromise the gateway's independent local collection, alarm, UI, logging, or local-audio loop.
 
-## Undecided Implementation Choices
+## Selected Implementation Choices (minimal MQTT loop)
 
-Decide and document these when implementation starts:
+| Choice | Selection | Notes |
+|---|---|---|
+| Runtime | Python **3.12+** | Package `ai-bridge` / import root `ai_bridge` |
+| Process shape | MQTT worker (`python -m ai_bridge`) | No web framework in the first slice |
+| MQTT client | `paho-mqtt` ≥ 2.1 | `clean_session`/`clean_start` true; resubscribe on connect |
+| Config | `pydantic-settings` env vars | See contracts below / `.env.example` |
+| Persistence | In-memory idempotency only | Explicitly disposable; not restart-safe production |
+| Default provider | `StubProvider` via `PROVIDER=stub` | `PROVIDER=mimo` reserved, not implemented |
+| Tests | `pytest` | `pytest tests/unit tests/contract`; integration needs Mosquitto |
+| Local Broker | Docker Compose Mosquitto | `deploy/dev/docker-compose.yml`; plaintext localhost only |
 
-- Runtime language and supported version.
-- Application framework, if any.
-- MQTT and HTTP client libraries.
-- Physical source root and language-specific naming style.
-- Database or other persistence engine, ORM/query layer, and migration mechanism.
-- Exact request/response schemas and backend error-code vocabulary beyond fields already confirmed in the root documents.
-- Logging, tracing, metrics, retention, formatting, linting, testing, packaging, and deployment tools.
+## Still Undecided
+
+- Production durable store, ORM/migrations
+- Real MiMo HTTPS client details and auth storage
+- Tracing/metrics backends, lint/typecheck CI, production packaging/deploy
+- Production MQTTS, token verification, and Broker ACL administration product features
 
 An implementation choice is not a project convention until it is reflected in these files or another approved design record.
 
@@ -54,13 +62,13 @@ An implementation choice is not a project convention until it is reflected in th
 
 | Guide | Description | Status |
 |---|---|---|
-| [Directory Structure](./directory-structure.md) | Framework-neutral service boundaries and placement rules | Filled |
-| [MQTT and AI Bridge Contracts](./mqtt-ai-bridge-contracts.md) | Topics, QoS, IDs, idempotency, retries, and payload boundaries | Filled |
+| [Directory Structure](./directory-structure.md) | `ai_bridge/` layout and responsibility boundaries | Filled |
+| [MQTT and AI Bridge Contracts](./mqtt-ai-bridge-contracts.md) | Topics, QoS, v1 envelope, idempotency, payload boundaries | Filled |
 | [Security Guidelines](./security-guidelines.md) | Identity, Broker permissions, secrets, AI safety, and environment boundaries | Filled |
-| [Database Guidelines](./database-guidelines.md) | Persistence contracts without assuming a database | Filled |
-| [Error Handling](./error-handling.md) | Provider failures, retries, publication, and degradation | Filled |
+| [Database Guidelines](./database-guidelines.md) | Persistence contracts; disposable in-memory first store | Filled |
+| [Error Handling](./error-handling.md) | Provider failures, retries, v1 error publication | Filled |
 | [Logging Guidelines](./logging-guidelines.md) | Correlation, event ingestion, levels, and redaction | Filled |
-| [Quality Guidelines](./quality-guidelines.md) | Review gates and protocol-focused testing | Filled |
+| [Quality Guidelines](./quality-guidelines.md) | pytest gates and protocol-focused testing | Filled |
 
 ## Pre-Development Checklist
 

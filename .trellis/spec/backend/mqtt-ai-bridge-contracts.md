@@ -149,6 +149,103 @@ The bridge may publish structured diagnosis or candidate configuration output, b
 
 Provider output that is malformed, missing required fields, or not valid JSON must not be presented as a successful structured result.
 
+## Scenario: Minimal AI MQTT loop (v1 implemented)
+
+### 1. Scope / Trigger
+
+Cross-layer MQTT request/response contract for the first `ai_bridge` slice. Any change to topics, required fields, envelope, error codes, or QoS/retain policy must update this section and tests together.
+
+### 2. Signatures
+
+- Subscribe filter: `vg/+/ai/request` (QoS 1)
+- Publish topic: `vg/{device_id}/ai/response/{req_id}` (QoS 1, retain=false)
+- Process entry: `python -m ai_bridge` / console script `ai-bridge`
+- Package helpers: `ai_bridge.contracts.topics`, `request.parse_request`, `envelope.build_response`
+
+### 3. Contracts
+
+**Request required fields**
+
+| Field | Type | Constraints |
+|---|---|---|
+| `req_id` | string | non-empty; echoed in every response when known |
+| `device_id` | string | non-empty; must equal topic `{device_id}` |
+| `created_ts_ms` | int | non-negative Unix ms; not bool |
+| `type` | string | first slice supports `diagnosis` only |
+| `payload_hash` | string | non-empty; part of idempotency key |
+
+Ordinary AI JSON payload soft limit in code: **64 KiB**. Larger content does not belong on this topic.
+
+**Response v1 envelope**
+
+| Field | Type | Rules |
+|---|---|---|
+| `req_id` | string | always when known |
+| `device_id` | string | when known |
+| `type` | string | when known |
+| `status` | string | `processing` \| `success` \| `error` |
+| `error_code` | string\|null | required on `error`; null otherwise |
+| `error_message` | string\|null | safe human text; null on non-error |
+| `result` | object\|null | required on `success`; null otherwise |
+| `received_ts_ms` | int | cloud receipt time |
+| `bridge_ts_ms` | int | bridge decision/publish time |
+
+**Error codes**: `validation_error`, `conflict`, `timeout`, `provider_error`, `internal_error`.
+
+**Env keys (dev worker)**
+
+| Key | Default | Required |
+|---|---|---|
+| `MQTT_HOST` | `localhost` | no |
+| `MQTT_PORT` | `1883` | no |
+| `MQTT_USERNAME` / `MQTT_PASSWORD` | empty | no |
+| `MQTT_CLIENT_ID` | `ai-bridge-dev` | no |
+| `REQUEST_TIMEOUT_MS` | `30000` | no |
+| `PROVIDER` | `stub` | no (`mimo` reserved) |
+| `LOG_LEVEL` | `INFO` | no |
+| `STUB_DELAY_MS` | `0` | no (test aid) |
+
+### 4. Validation & Error Matrix
+
+| Condition | Provider called? | status | error_code |
+|---|---|---|---|
+| non-JSON / oversize / missing fields | no | error | validation_error |
+| topic/payload `device_id` mismatch | no | error | validation_error |
+| unsupported `type` | no | error | validation_error |
+| processing duplicate | no (2nd) | processing | null |
+| completed duplicate | no | replay stored envelope exactly | as stored |
+| same `req_id`, different `payload_hash` | no | error | conflict |
+| overall deadline exceeded | maybe | error | timeout |
+| provider failure / invalid structured output | yes | error | provider_error |
+| unexpected exception | maybe | error | internal_error |
+
+### 5. Good / Base / Bad Cases
+
+- **Good**: valid `diagnosis` request → `status=success`, structured object under `result`, same `req_id`.
+- **Base**: completed duplicate → exact same stored response republished; provider not called again.
+- **Bad**: same `req_id` new `payload_hash` → `conflict`; missing `payload_hash` → `validation_error` without provider work.
+
+### 6. Tests Required
+
+- Contract: topic parse/format; QoS/retain constants; request validation; envelope field rules.
+- Unit: idempotency new/processing/completed/conflict; handle_request paths; stub result; secret redaction.
+- Integration (optional broker): synthetic publish → response on response topic.
+- Assertions must include: no second provider call on duplicates; exact completed replay; timeout code; secrets absent from logs/payloads.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+- Treating handbook local diagnosis **log** JSON as the MQTT response wire contract.
+- Rebuilding a “similar” success response on completed duplicate instead of replaying the stored envelope.
+- Handling provider work on the paho network-loop thread so duplicates cannot be observed as `processing`.
+
+#### Correct
+
+- Keep a stable v1 envelope; put diagnosis content under `result`.
+- Store the published response dict and replay it byte-for-byte for completed duplicates.
+- Dispatch inbound MQTT messages to worker threads; keep claim/complete under one idempotency lock.
+
 ## Source References
 
 - `VelaGuard_项目手册.md`: sections 2.1-2.2, 5.4-5.5, 8.3-8.4, 12.1, and 16.2-16.5, 16.9.

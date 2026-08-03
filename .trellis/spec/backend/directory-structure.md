@@ -6,9 +6,11 @@
 
 ## Current State
 
-The repository has no business code, so no physical backend structure is established. The language, framework, package system, and source root must be selected during implementation.
+The first backend package root is **`ai_bridge/`** (Python 3.12+, setuptools project `ai-bridge`).
 
-The boundaries below are required responsibilities, not a commitment to exact folder names. Map them to the chosen ecosystem without collapsing transport, orchestration, provider integration, persistence, and security into one module.
+Dev Broker assets live under `deploy/dev/`. Tests live under `tests/` (`contract/`, `unit/`, `integration/`).
+
+The boundaries below remain required responsibilities. Map new work into these modules without collapsing transport, orchestration, provider integration, persistence, and security into one file.
 
 ## Confirmed Backend Boundaries
 
@@ -30,26 +32,25 @@ The backend does not own device-side Modbus, LVGL, local HTTP APIs, local config
 Use this responsibility map when creating the first backend structure. Exact names and nesting remain implementation decisions.
 
 ```text
-<backend-source-root>/                 # exact root is not selected yet
-  entrypoints/                         # process startup and lifecycle wiring
+ai_bridge/                             # selected Python package root
+  __main__.py                          # process startup / lifecycle wiring
+  configuration/                       # validated env settings
+  contracts/                           # topics, request/response models, error codes
   transport/
-    mqtt/                              # subscriptions, topic parsing, publishing, QoS/retained policy
-    http/                              # cloud upload/health/admin endpoints only if required
+    mqtt/                              # paho client, subscribe/publish, reconnect
   application/                         # request orchestration and use cases
-  contracts/                           # MQTT schemas, IDs, statuses, provider-neutral models
-  providers/
-    mimo/                              # MiMo HTTPS adapter
-    tts/                               # TTS adapter
-    asr/                               # ASR adapter
-    manual_parsing/                    # manual parsing adapter
-  persistence/                         # idempotency, request state, denylist, metadata
-  security/                            # credentials, redaction, authorization/ACL integration
-  observability/                       # logging, metrics, tracing, event ingestion
-  configuration/                       # validated runtime configuration
-  tests/                               # unit, contract, integration, and failure-path tests
+  providers/                           # Provider protocol + stub (+ future mimo)
+  persistence/                         # idempotency store (in-memory first slice)
+  observability/                       # logging + redaction helpers
+  cli/                                 # synthetic publisher / dev tools
+tests/
+  contract/
+  unit/
+  integration/
+deploy/dev/                            # Mosquitto compose for local verification
 ```
 
-Create only modules needed by the implemented slice. Do not scaffold empty framework layers merely to match this map.
+Create only modules needed by the implemented slice. Do not scaffold empty framework layers merely to match this map. TTS/ASR/manual/OTA packages appear only when those slices are implemented.
 
 ## Dependency Direction
 

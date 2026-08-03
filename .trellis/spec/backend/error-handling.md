@@ -65,13 +65,14 @@ Exact retry counts, backoff values, jitter, and provider status mappings are imp
 
 ## Error Publication
 
-The exact JSON envelope is not confirmed. When designed, it must:
+v1 AI response envelope is implemented (see `mqtt-ai-bridge-contracts.md` Scenario: Minimal AI MQTT loop):
 
-- Carry the original `req_id` and request-type correlation.
-- Distinguish processing, retryable failure, and terminal failure.
-- Provide a stable machine-readable code and safe human-readable summary.
-- Exclude secrets and unbounded provider response bodies.
-- Follow the same versioned schema discipline as successful responses.
+- Always carry `req_id` when known; include `device_id` and `type` when known.
+- `status` distinguishes `processing`, `success`, and `error`.
+- On `error`, set stable `error_code` from: `validation_error`, `conflict`, `timeout`, `provider_error`, `internal_error`.
+- `error_message` is optional safe text; never secrets or raw provider dumps.
+- `result` is null on non-success.
+- Completed duplicates must republish the **exact** stored envelope, including prior timestamps.
 
 ## Source References
 
