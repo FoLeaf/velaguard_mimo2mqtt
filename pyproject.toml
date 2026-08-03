@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-bridge"
+version = "0.1.0"
+description = "VelaGuard cloud AI Bridge minimal MQTT request/response loop"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "paho-mqtt>=2.1.0",
+  "pydantic>=2.7.0",
+  "pydantic-settings>=2.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2.0",
+  "pytest-timeout>=2.3.0",
+]
+
+[project.scripts]
+ai-bridge = "ai_bridge.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["ai_bridge*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+  "integration: requires a local MQTT broker",
+]

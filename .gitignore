@@ -12,6 +12,10 @@ __pycache__/
 .Python
 .venv/
 venv/
+*.egg-info/
+.eggs/
+dist/
+build/
 .env
 .env.*
 !.env.example

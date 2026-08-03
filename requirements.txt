@@ -1,0 +1,5 @@
+paho-mqtt>=2.1.0
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+pytest>=8.2.0
+pytest-timeout>=2.3.0

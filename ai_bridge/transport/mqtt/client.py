@@ -1,0 +1,196 @@
+"""paho-mqtt based AI Bridge client with reconnect resubscribe."""
+
+from __future__ import annotations
+
+import json
+import threading
+import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
+
+import paho.mqtt.client as mqtt
+
+from ai_bridge.contracts.topics import AI_QOS, AI_RETAIN, REQUEST_TOPIC_FILTER
+from ai_bridge.observability.logging import get_logger
+
+logger = get_logger(__name__)
+
+MessageHandler = Callable[[str, bytes], None]
+
+
+class MqttBridgeClient:
+    """Independent bridge MQTT client.
+
+    - Subscribes to ``vg/+/ai/request`` QoS 1 on connect/reconnect
+    - Publishes responses QoS 1, retain=False
+    - clean_session / clean_start True (no durable broker session assumed)
+    - Dispatches inbound messages off the network loop so in-flight work
+      cannot block processing of duplicate/other requests
+    """
+
+    def __init__(
+        self,
+        *,
+        host: str,
+        port: int,
+        client_id: str,
+        username: str | None = None,
+        password: str | None = None,
+        on_message: MessageHandler | None = None,
+        keepalive: int = 60,
+        worker_threads: int = 8,
+    ) -> None:
+        self._host = host
+        self._port = port
+        self._keepalive = keepalive
+        self._on_message = on_message
+        self._connected = threading.Event()
+        self._lock = threading.RLock()
+        self._executor = ThreadPoolExecutor(
+            max_workers=max(1, worker_threads),
+            thread_name_prefix="ai-bridge-mqtt",
+        )
+        self._closed = False
+
+        try:
+            # paho-mqtt 2.x
+            self._client = mqtt.Client(
+                callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+                client_id=client_id,
+                protocol=mqtt.MQTTv311,
+                clean_session=True,
+            )
+        except (TypeError, AttributeError):
+            # paho-mqtt 1.x fallback
+            self._client = mqtt.Client(client_id=client_id, clean_session=True)
+
+        if username:
+            self._client.username_pw_set(username, password)
+
+        self._client.on_connect = self._handle_connect
+        self._client.on_disconnect = self._handle_disconnect
+        self._client.on_message = self._handle_message
+
+    def set_message_handler(self, handler: MessageHandler) -> None:
+        self._on_message = handler
+
+    def start(self) -> None:
+        logger.info("mqtt_connecting host=%s port=%s", self._host, self._port)
+        self._client.connect_async(self._host, self._port, keepalive=self._keepalive)
+        self._client.loop_start()
+
+    def stop(self) -> None:
+        self._closed = True
+        try:
+            self._client.loop_stop()
+            self._client.disconnect()
+        except Exception:
+            logger.exception("mqtt_stop_error")
+        self._connected.clear()
+        self._executor.shutdown(wait=True, cancel_futures=False)
+        logger.info("mqtt_stopped")
+
+    def wait_connected(self, timeout: float = 10.0) -> bool:
+        return self._connected.wait(timeout)
+
+    def publish_json(
+        self,
+        topic: str,
+        payload: dict[str, Any],
+        *,
+        qos: int = AI_QOS,
+        retain: bool = AI_RETAIN,
+    ) -> None:
+        body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+        info = self._client.publish(topic, body.encode("utf-8"), qos=qos, retain=retain)
+        if info.rc != mqtt.MQTT_ERR_SUCCESS:
+            logger.error("mqtt_publish_failed topic=%s rc=%s", topic, info.rc)
+
+    def is_connected(self) -> bool:
+        return self._connected.is_set()
+
+    def _handle_connect(self, client: mqtt.Client, userdata: Any, *args: Any) -> None:
+        # paho v1: (flags, rc)  |  paho v2 CallbackAPIVersion.VERSION2: (flags, reason_code, properties)
+        if not args:
+            logger.error("mqtt_connect_failed missing_args")
+            return
+        reason = args[0] if len(args) == 1 else args[1]
+        if not self._connect_succeeded(reason):
+            logger.error("mqtt_connect_failed rc=%s", reason)
+            return
+
+        logger.info(
+            "mqtt_connected; subscribing filter=%s qos=%s",
+            REQUEST_TOPIC_FILTER,
+            AI_QOS,
+        )
+        client.subscribe(REQUEST_TOPIC_FILTER, qos=AI_QOS)
+        self._connected.set()
+
+    @staticmethod
+    def _connect_succeeded(reason: Any) -> bool:
+        if reason is None:
+            return False
+        if reason == 0:
+            return True
+        # paho ReasonCode / enum-like
+        is_failure = getattr(reason, "is_failure", None)
+        if callable(is_failure):
+            return not bool(is_failure())
+        value = getattr(reason, "value", reason)
+        try:
+            return int(value) == 0
+        except (TypeError, ValueError):
+            text = str(reason)
+            return text in {"Success", "0"} or text.endswith(".Success")
+
+    def _handle_disconnect(self, client: mqtt.Client, userdata: Any, *args: Any) -> None:
+        self._connected.clear()
+        logger.warning("mqtt_disconnected args=%s", args)
+
+    def _handle_message(self, client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> None:
+        # Keep the network loop free: provider work and orchestration run in workers.
+        if self._closed:
+            return
+        handler = self._on_message
+        if handler is None:
+            return
+        try:
+            payload = (
+                msg.payload
+                if isinstance(msg.payload, (bytes, bytearray))
+                else bytes(msg.payload)
+            )
+            topic = msg.topic
+            raw = bytes(payload)
+        except Exception:
+            logger.exception("mqtt_message_decode_error topic=%s", getattr(msg, "topic", None))
+            return
+
+        try:
+            self._executor.submit(self._dispatch_message, handler, topic, raw)
+        except RuntimeError:
+            # Executor already shut down during stop().
+            logger.warning("mqtt_message_dropped_executor_closed topic=%s", topic)
+
+    def _dispatch_message(self, handler: MessageHandler, topic: str, payload: bytes) -> None:
+        try:
+            handler(topic, payload)
+        except Exception:
+            logger.exception("mqtt_message_handler_error topic=%s", topic)
+
+
+def run_until_stopped(
+    client: MqttBridgeClient,
+    *,
+    stop_event: threading.Event | None = None,
+    poll_s: float = 0.5,
+) -> None:
+    """Block until stop_event is set (or KeyboardInterrupt)."""
+    event = stop_event or threading.Event()
+    try:
+        while not event.is_set():
+            time.sleep(poll_s)
+    except KeyboardInterrupt:
+        event.set()
