@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/mqtt-ai-bridge-contracts.md", "reason": "v1 response envelope, error codes, provider result rules the MiMo adapter must preserve"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Provider failure classification, timeout/retry policy, no provider_error->internal_error"}
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "MiMo key server-side only, redaction, no secrets in payloads/logs"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Test expectations for provider isolation and failure paths"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Provider module placement and dependency direction"}
+{"file": ".trellis/tasks/08-03-ai-bridge-mimo-provider/prd.md", "reason": "Scope, wire contract for diagnosis result schema, acceptance criteria"}
+{"file": ".trellis/tasks/08-03-ai-bridge-mimo-provider/design.md", "reason": "Adapter design, retry matrix, mock server plan, non-goals"}

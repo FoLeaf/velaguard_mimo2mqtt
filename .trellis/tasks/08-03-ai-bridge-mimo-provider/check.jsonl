@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/mqtt-ai-bridge-contracts.md", "reason": "Verify v1 envelope and result schema unchanged for MiMo path"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify provider_error/timeout classification and no internal_error misuse"}
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "Verify MIMO_API_KEY never in payloads/logs/tests"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify provider isolation, failure-path tests, and regression of stub default"}
+{"file": ".trellis/tasks/08-03-ai-bridge-mimo-provider/prd.md", "reason": "AC1-AC10 acceptance criteria for the quality check"}
+{"file": ".trellis/tasks/08-03-ai-bridge-mimo-provider/design.md", "reason": "Adapter/retry/schema design expectations"}
