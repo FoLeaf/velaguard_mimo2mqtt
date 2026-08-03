@@ -49,3 +49,27 @@ Planned, implemented, checked and deployed the first AI Bridge slice: Python 3.1
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: Real MiMo provider integration
+
+**Date**: 2026-08-03
+**Task**: Real MiMo provider integration
+**Branch**: `main`
+
+### Summary
+
+Added MiMoProvider (OpenAI-compatible chat completions) behind the Provider seam: schema-validated diagnosis result, bounded retry, per-attempt timeout, key via MIMO_API_KEY env only (never committed). 91 tests pass (mock-based). Deployed to server 107.174.123.74 and verified live MiMo call with mimo-v2.5 model; corrected default model after /models check. Specs updated.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a0f35b4` | (see git log) |
+| `527a4af` | (see git log) |
+| `b4214c6` | (see git log) |
+| `d0085b5` | (see git log) |
+
+### Status
+
+[OK] **Completed**
