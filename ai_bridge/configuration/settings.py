@@ -33,7 +33,7 @@ class Settings(BaseSettings):
         default="https://token-plan-cn.xiaomimimo.com/v1",
         alias="MIMO_BASE_URL",
     )
-    mimo_model: str = Field(default="mimo-chat", alias="MIMO_MODEL")
+    mimo_model: str = Field(default="mimo-v2.5", alias="MIMO_MODEL")
     mimo_api_key: str | None = Field(default=None, alias="MIMO_API_KEY")
     mimo_http_timeout_ms: int = Field(default=15_000, alias="MIMO_HTTP_TIMEOUT_MS")
     mimo_max_retries: int = Field(default=2, alias="MIMO_MAX_RETRIES")

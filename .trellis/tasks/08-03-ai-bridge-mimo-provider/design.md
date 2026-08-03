@@ -44,7 +44,7 @@ HandleAiRequest (unchanged)
 | Env | Type | Default | Notes |
 |---|---|---|---|
 | `MIMO_BASE_URL` | str | `https://token-plan-cn.xiaomimimo.com/v1` | no trailing slash handling; join `/chat/completions` |
-| `MIMO_MODEL` | str | `mimo-chat` (implementation may adjust) | actual MiMo model id |
+| `MIMO_MODEL` | str | `mimo-v2.5` (confirmed live 2026-08-03) | actual MiMo model id |
 | `MIMO_API_KEY` | str (secret) | unset | required for `PROVIDER=mimo`; validated at build time |
 | `MIMO_HTTP_TIMEOUT_MS` | int | e.g. `15000` | per-attempt timeout < overall deadline |
 | `MIMO_MAX_RETRIES` | int | e.g. `2` | bounded; only transient statuses |

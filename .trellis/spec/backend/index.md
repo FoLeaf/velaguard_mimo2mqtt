@@ -56,7 +56,7 @@ When these guidelines and either root document disagree, stop and resolve the di
 - Anthropic-compatible adapter (OpenAI-compatible chosen for MiMo)
 - Tracing/metrics backends, lint/typecheck CI, production packaging/deploy
 - Production MQTTS, token verification, and Broker ACL administration product features
-- Live MiMo model id confirmation (`MIMO_MODEL` default `mimo-chat` is best-effort)
+- Anthropic-compatible adapter (OpenAI-compatible chosen for MiMo; model `mimo-v2.5` confirmed live)
 
 An implementation choice is not a project convention until it is reflected in these files or another approved design record.
 

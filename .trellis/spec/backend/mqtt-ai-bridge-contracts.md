@@ -265,7 +265,7 @@ Real MiMo HTTPS adapter behind the `Provider` seam. MQTT v1 envelope unchanged. 
 | Key | Default | Required |
 |---|---|---|
 | `MIMO_BASE_URL` | `https://token-plan-cn.xiaomimimo.com/v1` | no |
-| `MIMO_MODEL` | `mimo-chat` (confirm live) | no |
+| `MIMO_MODEL` | `mimo-v2.5` (confirmed live) | no |
 | `MIMO_API_KEY` | unset | yes when `PROVIDER=mimo` |
 | `MIMO_HTTP_TIMEOUT_MS` | `15000` | no |
 | `MIMO_MAX_RETRIES` | `2` | no (bounded 0..5) |

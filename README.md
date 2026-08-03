@@ -86,7 +86,7 @@ Useful environment variables:
 | Variable | Default | Purpose |
 |---|---|---|
 | `MIMO_BASE_URL` | `https://token-plan-cn.xiaomimimo.com/v1` | MiMo API base; provider calls `{base}/chat/completions` |
-| `MIMO_MODEL` | `mimo-chat` | MiMo model id |
+| `MIMO_MODEL` | `mimo-v2.5` | MiMo model id (confirmed live) |
 | `MIMO_API_KEY` | *(none)* | **Secret.** Required for `PROVIDER=mimo`; startup fails fast if unset |
 | `MIMO_HTTP_TIMEOUT_MS` | `15000` | Per-HTTP-attempt timeout (kept inside `REQUEST_TIMEOUT_MS`) |
 | `MIMO_MAX_RETRIES` | `2` | Retry budget for transient failures (429/5xx/network) |
@@ -141,7 +141,7 @@ Mosquitto broker**:
 # the repo or chat. Do not echo or commit the key.
 MIMO_API_KEY=<your-server-key> \
 MIMO_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1 \
-MIMO_MODEL=mimo-chat \
+MIMO_MODEL=mimo-v2.5 \
 PROVIDER=mimo REQUEST_TIMEOUT_MS=60000 python -m ai_bridge
 ```
 
