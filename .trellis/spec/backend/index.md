@@ -45,16 +45,18 @@ When these guidelines and either root document disagree, stop and resolve the di
 | MQTT client | `paho-mqtt` ≥ 2.1 | `clean_session`/`clean_start` true; resubscribe on connect |
 | Config | `pydantic-settings` env vars | See contracts below / `.env.example` |
 | Persistence | In-memory idempotency only | Explicitly disposable; not restart-safe production |
-| Default provider | `StubProvider` via `PROVIDER=stub` | `PROVIDER=mimo` reserved, not implemented |
+| Provider | `StubProvider` default; `MiMoProvider` via `PROVIDER=mimo` | OpenAI-compatible chat completions; key via `MIMO_API_KEY` env |
+| HTTP client | `requests` ≥ 2.31 | MiMo adapter only, isolated in `providers/mimo.py` |
 | Tests | `pytest` | `pytest tests/unit tests/contract`; integration needs Mosquitto |
 | Local Broker | Docker Compose Mosquitto | `deploy/dev/docker-compose.yml`; plaintext localhost only |
 
 ## Still Undecided
 
 - Production durable store, ORM/migrations
-- Real MiMo HTTPS client details and auth storage
+- Anthropic-compatible adapter (OpenAI-compatible chosen for MiMo)
 - Tracing/metrics backends, lint/typecheck CI, production packaging/deploy
 - Production MQTTS, token verification, and Broker ACL administration product features
+- Live MiMo model id confirmation (`MIMO_MODEL` default `mimo-chat` is best-effort)
 
 An implementation choice is not a project convention until it is reflected in these files or another approved design record.
 

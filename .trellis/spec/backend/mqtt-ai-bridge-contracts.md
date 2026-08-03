@@ -246,6 +246,81 @@ Ordinary AI JSON payload soft limit in code: **64 KiB**. Larger content does not
 - Store the published response dict and replay it byte-for-byte for completed duplicates.
 - Dispatch inbound MQTT messages to worker threads; keep claim/complete under one idempotency lock.
 
+## Scenario: MiMo provider (v1 diagnosis adapter)
+
+### 1. Scope / Trigger
+
+Real MiMo HTTPS adapter behind the `Provider` seam. MQTT v1 envelope unchanged. Any change to the OpenAI-compatible call, result schema, retry policy, or env keys must update this section and tests.
+
+### 2. Signatures
+
+- Provider: `MiMoProvider.handle(request: AiRequest, *, deadline_s: float) -> ProviderResult`
+- Wire call: `POST {MIMO_BASE_URL}/chat/completions` with `Authorization: Bearer <MIMO_API_KEY>`
+- Build: `build_provider("mimo")` (raises `ValueError` if `MIMO_API_KEY` unset)
+
+### 3. Contracts
+
+**Env keys**
+
+| Key | Default | Required |
+|---|---|---|
+| `MIMO_BASE_URL` | `https://token-plan-cn.xiaomimimo.com/v1` | no |
+| `MIMO_MODEL` | `mimo-chat` (confirm live) | no |
+| `MIMO_API_KEY` | unset | yes when `PROVIDER=mimo` |
+| `MIMO_HTTP_TIMEOUT_MS` | `15000` | no |
+| `MIMO_MAX_RETRIES` | `2` | no (bounded 0..5) |
+| `MIMO_RETRY_BACKOFF_MS` | `500` | no |
+
+**Request body**: `{"model": MIMO_MODEL, "messages": [{"role":"system",...},{"role":"user",...}], "temperature": 0, "response_format": {"type":"json_object"}}`
+
+**Result schema (v1 diagnosis)** — validated before success:
+
+| Field | Type | Rule |
+|---|---|---|
+| `diagnosis_summary` | string | required, non-empty |
+| `reasons` | list[str] | optional |
+| `recommendations` | list[str] | optional |
+| `confidence` | number | optional, 0..1 |
+| (unknown keys) | any | passed through |
+
+Adapter adds `"source": "mimo"` on success.
+
+### 4. Validation & Error Matrix
+
+| MiMo condition | Action | ProviderFailure code |
+|---|---|---|
+| 200 + valid schema | normalize + `source=mimo` | success |
+| 200 + invalid JSON / missing summary / bad types | no retry | provider_error |
+| 401/403/400 | no retry | provider_error |
+| 429 / 5xx / network | bounded retry with backoff+jitter | exhausted → provider_error |
+| deadline exceeded at any point | abort | timeout |
+| unexpected exception | abort | timeout (bounded by deadline) |
+
+Never map provider failure to `internal_error`. On the final retry attempt, do **not** sleep past the remaining deadline (otherwise `provider_error` flips to `timeout`).
+
+### 5. Good / Base / Bad Cases
+
+- **Good**: valid JSON schema → `status=success`, `result.diagnosis_summary` + `source=mimo`, same `req_id`.
+- **Base**: 429 once then 200 → success after one retry; exhausted 5xx → `provider_error`.
+- **Bad**: MiMo returns `{"foo": 1}` → `provider_error`; slow past deadline → `timeout`; key missing → startup `ValueError`.
+
+### 6. Tests Required
+
+- Wire-shape (request body, headers, Bearer auth), schema matrix, retry matrix, timeout path, no-key startup error, redaction of `mimo_api_key` in logs.
+- Regression: existing stub provider tests stay green; `pytest tests/unit tests/contract`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+- Sleeping full backoff on the final attempt, then reporting `timeout` for an exhausted transient failure.
+- Retrying 4xx/validation failures, or leaking `MIMO_API_KEY` into logs/error messages.
+
+#### Correct
+
+- Sleep backoff only when a further attempt is possible; exhausted transients → `provider_error`.
+- `provider_error` for any MiMo output that fails the fixed JSON schema; no success without validation.
+
 ## Source References
 
 - `VelaGuard_项目手册.md`: sections 2.1-2.2, 5.4-5.5, 8.3-8.4, 12.1, and 16.2-16.5, 16.9.
