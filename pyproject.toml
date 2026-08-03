@@ -12,6 +12,7 @@ dependencies = [
   "paho-mqtt>=2.1.0",
   "pydantic>=2.7.0",
   "pydantic-settings>=2.3.0",
+  "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]

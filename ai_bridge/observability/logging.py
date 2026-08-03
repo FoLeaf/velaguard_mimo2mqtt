@@ -22,7 +22,8 @@ _SECRET_KEYS = frozenset(
 
 _BEARER_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._\-+/=]+")
 _KEY_VALUE_RE = re.compile(
-    r"(?i)\b(password|token|api[_-]?key|authorization|secret)\b\s*[:=]\s*([^\s,;]+)"
+    r"(?i)\b(password|token|api[_-]?key|mimo[_-]?api[_-]?key|authorization|secret)"
+    r"\s*[:=]\s*([^\s,;]+)"
 )
 
 

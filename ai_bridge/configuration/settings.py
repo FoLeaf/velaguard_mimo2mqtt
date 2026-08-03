@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     stub_delay_ms: int = Field(default=0, alias="STUB_DELAY_MS")
 
+    # MiMo HTTPS provider settings (OpenAI-compatible chat completions).
+    mimo_base_url: str = Field(
+        default="https://token-plan-cn.xiaomimimo.com/v1",
+        alias="MIMO_BASE_URL",
+    )
+    mimo_model: str = Field(default="mimo-chat", alias="MIMO_MODEL")
+    mimo_api_key: str | None = Field(default=None, alias="MIMO_API_KEY")
+    mimo_http_timeout_ms: int = Field(default=15_000, alias="MIMO_HTTP_TIMEOUT_MS")
+    mimo_max_retries: int = Field(default=2, alias="MIMO_MAX_RETRIES")
+    mimo_retry_backoff_ms: int = Field(default=500, alias="MIMO_RETRY_BACKOFF_MS")
+
     @field_validator("mqtt_port")
     @classmethod
     def _port_range(cls, value: int) -> int:
@@ -47,6 +58,52 @@ class Settings(BaseSettings):
     def _stub_delay_non_negative(cls, value: int) -> int:
         if value < 0:
             raise ValueError("STUB_DELAY_MS must be non-negative")
+        return value
+
+    @field_validator("mimo_base_url")
+    @classmethod
+    def _mimo_base_url_strip(cls, value: str) -> str:
+        normalized = value.strip().rstrip("/")
+        if not normalized:
+            raise ValueError("MIMO_BASE_URL must not be empty")
+        return normalized
+
+    @field_validator("mimo_model")
+    @classmethod
+    def _mimo_model_non_empty(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("MIMO_MODEL must not be empty")
+        return normalized
+
+    @field_validator("mimo_api_key")
+    @classmethod
+    def _mimo_api_key_no_default(cls, value: str | None) -> str | None:
+        # A set-but-blank key is treated the same as unset so build_provider
+        # can fail fast with a clear message when PROVIDER=mimo.
+        if value is not None and not value.strip():
+            return None
+        return value
+
+    @field_validator("mimo_http_timeout_ms")
+    @classmethod
+    def _mimo_timeout_positive(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("MIMO_HTTP_TIMEOUT_MS must be positive")
+        return value
+
+    @field_validator("mimo_max_retries")
+    @classmethod
+    def _mimo_retries_bounded(cls, value: int) -> int:
+        if not 0 <= value <= 5:
+            raise ValueError("MIMO_MAX_RETRIES must be between 0 and 5")
+        return value
+
+    @field_validator("mimo_retry_backoff_ms")
+    @classmethod
+    def _mimo_backoff_non_negative(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("MIMO_RETRY_BACKOFF_MS must be non-negative")
         return value
 
     @field_validator("log_level")

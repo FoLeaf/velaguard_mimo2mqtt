@@ -18,7 +18,11 @@ logger = get_logger(__name__)
 
 def build_runtime(settings: Settings) -> tuple[MqttBridgeClient, HandleAiRequest]:
     store = InMemoryIdempotencyStore()
-    provider = build_provider(settings.provider, stub_delay_ms=settings.stub_delay_ms)
+    provider = build_provider(
+        settings.provider,
+        stub_delay_ms=settings.stub_delay_ms,
+        settings=settings,
+    )
 
     client = MqttBridgeClient(
         host=settings.mqtt_host,

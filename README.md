@@ -6,7 +6,7 @@ Cloud-side AI Bridge for VelaGuard. This repository owns the **backend bridge on
 VelaGuard -> MQTT Broker -> AI Bridge -> HTTPS providers (MiMo later)
 ```
 
-This first slice proves one end-to-end MQTT AI request/response loop with a pluggable provider (default **stub**, no live MiMo credentials required).
+This first slice proves one end-to-end MQTT AI request/response loop with a pluggable provider (default **stub**, no live MiMo credentials required). A real OpenAI-compatible **MiMo** HTTPS provider is included behind the same seam and is opt-in via `PROVIDER=mimo`.
 
 ## Features
 
@@ -77,9 +77,32 @@ Useful environment variables:
 | `MQTT_USERNAME` / `MQTT_PASSWORD` | empty | Optional auth |
 | `MQTT_CLIENT_ID` | `ai-bridge-dev` | Bridge client id |
 | `REQUEST_TIMEOUT_MS` | `30000` | Overall request deadline |
-| `PROVIDER` | `stub` | Provider selection (`stub` only in this slice) |
+| `PROVIDER` | `stub` | Provider selection (`stub` or `mimo`) |
 | `STUB_DELAY_MS` | `0` | Artificial stub delay (timeout tests) |
 | `LOG_LEVEL` | `INFO` | Logging level |
+
+### MiMo provider (optional, `PROVIDER=mimo`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MIMO_BASE_URL` | `https://token-plan-cn.xiaomimimo.com/v1` | MiMo API base; provider calls `{base}/chat/completions` |
+| `MIMO_MODEL` | `mimo-chat` | MiMo model id |
+| `MIMO_API_KEY` | *(none)* | **Secret.** Required for `PROVIDER=mimo`; startup fails fast if unset |
+| `MIMO_HTTP_TIMEOUT_MS` | `15000` | Per-HTTP-attempt timeout (kept inside `REQUEST_TIMEOUT_MS`) |
+| `MIMO_MAX_RETRIES` | `2` | Retry budget for transient failures (429/5xx/network) |
+| `MIMO_RETRY_BACKOFF_MS` | `500` | Base backoff between retries (with jitter) |
+
+MiMo responses are forced to JSON (`response_format={"type":"json_object"}`) and
+schema-validated before being published as success. Invalid output is published
+as `status=error`, `error_code=provider_error`, never success. The result carries
+`"source": "mimo"`. The HTTPS adapter uses `requests` as its synchronous HTTP
+client (blocking call on MQTT worker threads), added to `pyproject.toml`.
+
+**Secret note (mandatory).** `MIMO_API_KEY` is a live credential. It is injected
+only via the deploy-time server environment (server-local `.env`, gitignored).
+It must **never** be committed to this repo, added to tests/fixtures, pasted
+into the README, or shared in chat. `.env.example` keeps the value blank. The
+bridge redacts `mimo_api_key` from every log and MQTT payload.
 
 ## Synthetic publisher
 
@@ -92,7 +115,9 @@ python -m ai_bridge.cli.synthetic_publisher --help
 
 ## Tests
 
-Unit/contract tests do **not** require a live broker or MiMo:
+Unit/contract tests do **not** require a live broker or MiMo key. The MiMo
+adapter tests run against a local OpenAI-compatible stub HTTP server
+(`tests/helpers/mimo_stub_server.py`):
 
 ```bash
 pytest tests/unit tests/contract -q
@@ -104,6 +129,31 @@ Integration tests (optional; need Mosquitto on `localhost:1883`):
 docker compose -f deploy/dev/docker-compose.yml up -d
 pytest tests/integration -q
 ```
+
+## Live MiMo verification (manual, optional)
+
+The default test suite never calls the real MiMo API. To verify against the
+live service, you need a real key on the server environment **and a running
+Mosquitto broker**:
+
+```bash
+# On the deploy server only: inject the key from server-local .env, never from
+# the repo or chat. Do not echo or commit the key.
+MIMO_API_KEY=<your-server-key> \
+MIMO_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1 \
+MIMO_MODEL=mimo-chat \
+PROVIDER=mimo REQUEST_TIMEOUT_MS=60000 python -m ai_bridge
+```
+
+Then publish a diagnosis request (e.g. via MQTTX or the synthetic publisher):
+
+```bash
+python -m ai_bridge.cli.synthetic_publisher --device-id dev01
+```
+
+Expect a `status=success` response whose `result` contains a
+`diagnosis_summary` and `"source": "mimo"`. This is an explicit manual step, not
+part of `pytest`.
 
 ## v1 response envelope
 
@@ -143,7 +193,7 @@ ai_bridge/
   contracts/       # topics, request/response models
   transport/mqtt/  # paho client, subscribe/publish
   application/     # orchestration + deadline + idempotency decisions
-  providers/       # Provider protocol + StubProvider
+  providers/       # Provider protocol + StubProvider + MiMoProvider
   persistence/     # in-memory disposable idempotency store
   observability/   # logging + redaction
   cli/             # synthetic publisher
@@ -154,7 +204,7 @@ tests/
 ## Out of scope (this slice)
 
 - Device firmware / LVGL UI
-- Live MiMo HTTP adapter (interface seam only)
+- Live MiMo verification is manual (see above); the automated suite uses a stub
 - TTS / ASR / manual parsing / OTA
 - SQL / Redis durable idempotency
 - Production MQTTS / token / ACL product features

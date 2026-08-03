@@ -7,6 +7,7 @@ from ai_bridge.providers.base import (
     ProviderSuccess,
     build_provider,
 )
+from ai_bridge.providers.mimo import MiMoProvider
 from ai_bridge.providers.stub import StubProvider
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     "ProviderFailure",
     "ProviderResult",
     "ProviderSuccess",
+    "MiMoProvider",
     "StubProvider",
     "build_provider",
 ]
