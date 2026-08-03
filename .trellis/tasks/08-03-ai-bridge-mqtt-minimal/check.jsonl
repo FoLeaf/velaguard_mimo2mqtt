@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/mqtt-ai-bridge-contracts.md", "reason": "Verify topics, QoS, required fields, idempotency, and non-retained AI traffic"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify validation, duplicate, timeout, and correlatable error publication behavior"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify required contract, idempotency, security, and degradation tests"}
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "Verify secrets stay server-side and plaintext MQTT remains dev-only"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify in-memory store is not claimed as restart-safe production behavior"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Verify correlation fields and redaction on the verification path"}
+{"file": ".trellis/tasks/08-03-ai-bridge-mqtt-minimal/prd.md", "reason": "Acceptance criteria and out-of-scope guardrails for the quality check"}
+{"file": ".trellis/tasks/08-03-ai-bridge-mqtt-minimal/design.md", "reason": "Architecture and wire-contract expectations to check against implementation"}

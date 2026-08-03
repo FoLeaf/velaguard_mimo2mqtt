@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/backend/mqtt-ai-bridge-contracts.md", "reason": "Frozen topics, QoS, required AI fields, idempotency, payload and session rules for the MQTT loop"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Required backend responsibility boundaries and dependency direction for first package layout"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Request handling order, duplicate rules, timeout/retry classification, error publication constraints"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Idempotency persistence contract and explicit disposable in-memory limits for this slice"}
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "Broker client boundary, secret handling, controlled-LAN plaintext vs production policy"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Minimum contract, idempotency, security, and integration test expectations"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Structured correlation fields and secret redaction rules"}
+{"file": ".trellis/tasks/08-03-ai-bridge-mqtt-minimal/prd.md", "reason": "Accepted scope, v1 envelope, error codes, and acceptance criteria"}
+{"file": ".trellis/tasks/08-03-ai-bridge-mqtt-minimal/design.md", "reason": "Architecture, data flow, module boundaries, config, and test strategy"}
+{"file": ".trellis/tasks/08-03-ai-bridge-mqtt-minimal/implement.md", "reason": "Ordered implementation checklist and validation commands"}
