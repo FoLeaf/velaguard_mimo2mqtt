@@ -18,6 +18,17 @@ logger = get_logger(__name__)
 MAX_USER_CONTENT_CHARS = 8192
 _IDENTITY_MAX_CHARS = 256
 
+DIAGNOSIS_LANGUAGE_INSTRUCTIONS = (
+    "Language requirement: Use Simplified Chinese as the primary language for "
+    "all explanatory diagnosis fields: diagnosis_summary, possible_causes, "
+    "recommended_actions, reasons, and recommendations. Translate English "
+    "explanations from the input context into Chinese instead of copying them "
+    "as the response language. Keep device IDs, field names, units, error "
+    "codes, model/product names, code expressions, and necessary technical "
+    "terms in their original form when useful. Mixed Chinese and technical "
+    "terms are allowed, but do not return English prose as the default. "
+)
+
 DIAGNOSIS_SCHEMA_INSTRUCTIONS = (
     "Return ONLY a single JSON object (no markdown, no text outside the "
     "object) matching exactly this schema: "
@@ -36,7 +47,7 @@ DIAGNOSIS_SCHEMA_INSTRUCTIONS = (
 
 def build_diagnosis_system_prompt(skill_text: str) -> str:
     """Append fixed JSON/schema instructions to a skill text."""
-    return f"{skill_text.strip()}\n\n{DIAGNOSIS_SCHEMA_INSTRUCTIONS}"
+    return f"{skill_text.strip()}\n\n{DIAGNOSIS_LANGUAGE_INSTRUCTIONS}\n{DIAGNOSIS_SCHEMA_INSTRUCTIONS}"
 
 
 def _bounded_identity(value: str, *, field: str) -> str:

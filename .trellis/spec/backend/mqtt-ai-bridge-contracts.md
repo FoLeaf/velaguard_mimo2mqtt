@@ -390,6 +390,8 @@ unconditionally).
 `ai_bridge/providers/schema.py::validate_diagnosis_result` is the single
 validation owner for provider/fallback/stub output.
 
+**Language contract:** Explanatory diagnosis fields (`diagnosis_summary`, `possible_causes`, `recommended_actions`, `reasons`, and `recommendations`) should use Simplified Chinese as the primary language. Device IDs, field names, units, error codes, model/product names, code expressions, and necessary technical terms may remain in their original form. This is a prompt/fixed-template contract; schema validation must remain language-agnostic.
+
 **Fallback semantics**
 
 - Trigger: `ProviderFailure(code="provider_error")` with `fallback_eligible=True`,

@@ -37,23 +37,23 @@ def build_fallback_diagnosis(request: AiRequest, reason: str) -> dict[str, Any]:
     bundle = normalize_diagnosis_context(request.raw.get("context"))
     result = {
         "diagnosis_summary": (
-            "Cloud AI diagnosis is temporarily unavailable; local template "
-            "result."
+            "云端 AI 诊断暂时不可用，当前返回本地模板结果。"
         ),
         "risk_level": _risk_from_event(bundle.event),
         "possible_causes": [
-            "Cloud AI service is temporarily unavailable (provider failure)."
+            "云端 AI 服务暂时不可用（provider 失败）。"
         ],
         "recommended_actions": [
-            "Retry the diagnosis after a short delay.",
-            "Continue local monitoring and check the latest alarm/telemetry "
-            "values.",
+            "请稍后重试诊断。",
+            "继续本地监控，并检查最新告警和遥测值。",
         ],
         "need_shutdown": False,
         "confidence": 0.0,
         "source": "fallback",
         "advisory_only": True,
-        "fallback_reason": reason,
+        "fallback_reason": (
+            "云端 AI 服务暂时不可用，已使用本地模板结果。原始原因：" + reason
+        ),
     }
     validated = validate_diagnosis_result(result)
     logger.warning(

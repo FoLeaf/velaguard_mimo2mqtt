@@ -247,7 +247,8 @@ def test_fallback_on_eligible_provider_error() -> None:
     assert body["status"] == "success"
     assert body["result"]["source"] == "fallback"
     assert body["result"]["advisory_only"] is True
-    assert body["result"]["fallback_reason"] == "mimo provider error (HTTP 500)"
+    assert body["result"]["fallback_reason"].startswith("云端 AI 服务暂时不可用")
+    assert "mimo provider error (HTTP 500)" in body["result"]["fallback_reason"]
     assert body["result"]["risk_level"] == "low"
     assert body["result"]["need_shutdown"] is False
     assert body["result"]["confidence"] == 0.0

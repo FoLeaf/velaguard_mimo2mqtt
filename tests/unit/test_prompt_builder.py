@@ -204,7 +204,18 @@ def test_messages_system_includes_skill_and_schema_instructions() -> None:
     assert [m["role"] for m in messages] == ["system", "user"]
     system = messages[0]["content"]
     assert "VelaGuard industrial fault diagnosis" in system
+    assert "Simplified Chinese" in system
+    assert "diagnosis_summary" in system
+    assert "device IDs" in system
     assert "need_shutdown" in system
     assert "JSON object" in system
     user = json.loads(messages[1]["content"])
     assert user["context"] == {}
+
+
+def test_language_rule_is_added_to_custom_skill() -> None:
+    messages = build_diagnosis_messages(_request(), "Custom diagnosis role")
+    system = messages[0]["content"]
+    assert system.startswith("Custom diagnosis role")
+    assert "Simplified Chinese" in system
+    assert "recommended_actions" in system

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from ai_bridge.runtime.skill_manager import DEFAULT_DIAGNOSIS_SKILL, SkillManager
@@ -49,3 +51,12 @@ def test_invalid_name_rejected(tmp_path, name: str) -> None:
     manager = SkillManager(tmp_path)
     with pytest.raises(ValueError):
         manager.load(name)
+
+
+def test_default_skill_requires_simplified_chinese() -> None:
+    assert "Simplified Chinese" in DEFAULT_DIAGNOSIS_SKILL
+
+
+def test_checked_in_diagnosis_skill_requires_simplified_chinese() -> None:
+    skill_path = Path(__file__).resolve().parents[2] / "ai_bridge" / "skills" / "industrial_fault_diagnosis.md"
+    assert "Simplified Chinese" in skill_path.read_text(encoding="utf-8")

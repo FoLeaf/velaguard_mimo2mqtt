@@ -38,7 +38,10 @@ def test_fallback_passes_v2_schema() -> None:
     assert result["advisory_only"] is True
     assert result["confidence"] == 0.0
     assert result["need_shutdown"] is False
-    assert result["fallback_reason"] == "mimo provider error (HTTP 500)"
+    assert result["fallback_reason"].startswith("云端 AI 服务暂时不可用")
+    assert "mimo provider error (HTTP 500)" in result["fallback_reason"]
+    assert "云端 AI 诊断" in result["diagnosis_summary"]
+    assert all("English" not in item for item in result["recommended_actions"])
 
 
 @pytest.mark.parametrize(

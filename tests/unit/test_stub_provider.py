@@ -28,8 +28,9 @@ def test_stub_success_shape() -> None:
     assert result.result["risk_level"] == "low"
     assert result.result["possible_causes"] == []
     assert result.result["recommended_actions"] == [
-        "Retry with PROVIDER=mimo for live diagnosis"
+        "将 PROVIDER 设置为 mimo 以执行在线诊断。"
     ]
+    assert "本地 StubProvider" in result.result["diagnosis_summary"]
     assert result.result["need_shutdown"] is False
     assert result.result["confidence"] == 0.0
 

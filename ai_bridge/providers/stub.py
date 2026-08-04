@@ -35,11 +35,11 @@ class StubProvider:
         _ = request
         return ProviderSuccess(
             result={
-                "diagnosis_summary": "stub: no live MiMo call",
+                "diagnosis_summary": "本地 StubProvider 未调用在线 MiMo。",
                 "risk_level": "low",
                 "possible_causes": [],
                 "recommended_actions": [
-                    "Retry with PROVIDER=mimo for live diagnosis"
+                    "将 PROVIDER 设置为 mimo 以执行在线诊断。"
                 ],
                 "need_shutdown": False,
                 "confidence": 0.0,
