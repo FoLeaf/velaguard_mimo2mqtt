@@ -12,6 +12,12 @@ The confirmed cloud role is to connect to the MQTT Broker as an independent clie
 
 Frontend specs are intentionally absent because this repository owns backend cloud services only.
 
+The only frontend artifact is `debug-console/`, a dependency-free developer console used to
+simulate board-side AI requests. It runs fully offline in mock mode, or connects to the dev
+broker over MQTT WebSocket (mqtt.js vendored under `debug-console/vendor/`) for real
+request/response testing. It adds no backend runtime dependency and changes no backend
+boundary; it is developer tooling, not a product frontend.
+
 The first business slice exists under `ai_bridge/`. Selected implementation choices for that slice are listed below. Unlisted tools remain undecided; do not invent FastAPI, SQLAlchemy, PostgreSQL, or other stacks as project conventions.
 
 ## Sources of Truth

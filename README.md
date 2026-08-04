@@ -148,6 +148,61 @@ python -m ai_bridge.cli.synthetic_publisher --device-id dev01
 python -m ai_bridge.cli.synthetic_publisher --help
 ```
 
+## Debug console
+
+`debug-console/index.html` is a single-screen developer console that simulates a VelaGuard board sending `type=diagnosis` AI requests. It has two modes:
+
+- **Real mode (default)** connects over MQTT WebSocket to the dev broker, publishes the request to `vg/{device_id}/ai/request`, subscribes to `vg/{device_id}/ai/response/{req_id}`, and renders the bridge's real `processing` / terminal responses in real time.
+- **Mock mode** runs fully offline: responses come from a built-in mock engine with six contract scenarios, so the page also works over `file://` with zero network access.
+
+Open it directly:
+
+- Double-click `debug-console/index.html`, or
+- run `start debug-console/index.html` on Windows.
+
+No build step, no npm, and no CDN: mqtt.js is vendored under `debug-console/vendor/mqtt.min.js` (MIT).
+
+### Real mode
+
+- Default broker URL: `ws://107.174.123.74:9001` (dev Mosquitto WebSocket listener, plaintext anonymous). Change it in the connection panel; a `client_id` is generated automatically and can be overridden, and optional username/password fields are available.
+- The dev broker config lives in `deploy/dev/mosquitto/mosquitto.conf` (`listener 9001` + `protocol websockets`) and is exposed by `deploy/dev/docker-compose.yml`. After pulling this change onto the server, restart the dev broker (e.g. `docker compose -f deploy/dev/docker-compose.yml up -d --force-recreate mosquitto`) and confirm the AI Bridge reconnects; port 1883 behavior is unchanged.
+- On send, the page subscribes `vg/{device_id}/ai/response/{req_id}` (QoS 1) first, then publishes the request to `vg/{device_id}/ai/request` (QoS 1, not retained). `payload_hash` is computed in the browser with the same canonical form as the bridge.
+- Real bridge behavior is shown as-is: the normal path publishes `processing` then the terminal envelope; `validation_error` / `conflict` arrive directly without `processing`; reusing a `req_id` with a different `payload_hash` produces the real `conflict` response.
+- Connection or publish failures are reported inline; the page never crashes, and you can switch to Mock mode at any time to keep demonstrating.
+
+**Security note.** The dev broker is anonymous plaintext, and its 9001 WebSocket port is publicly reachable on the dev server. This is the existing dev posture (same as 1883) and is **not** production-safe. Production must use MQTTS, per-device credentials/tokens, and Broker ACLs.
+
+### Mock mode
+
+- Request editor for `req_id` (UUID by default), `device_id`, `created_ts_ms`, fixed `type=diagnosis`, and a read-only auto-computed `payload_hash` with a manual refresh button.
+- Context editor for `event`, `history`, `rules`, and `device`, each with a Chinese form mode or raw JSON mode, plus three presets (temperature over-limit, low humidity, empty context). Invalid JSON is reported inline and blocks sending.
+- Six mock scenarios: v2 MiMo success, fallback degradation, schema-invalid `provider_error`, overall `timeout`, `validation_error`, and idempotency `conflict`. The simulated delay is configurable per scenario.
+- Provider-path scenarios publish `processing` first, then the terminal response. `validation_error` and `conflict` are rejected before `processing`, matching the real bridge behavior.
+- Response viewer with envelope fields, result tree/JSON views, status/error badges, a copy button, a timeline with `received_ts_ms` / `bridge_ts_ms` and relative elapsed time, and request history (latest 50, with export/import of a single request JSON).
+- The layout is one 16:9 screen: request editing and send on the left, response / timeline / history on the right. Panels scroll internally; the page itself does not scroll.
+
+### payload_hash parity
+
+The console computes the hash with the same algorithm as `ai_bridge.cli.synthetic_publisher.build_request`:
+
+```text
+sha256( json.dumps(body, sort_keys=True, separators=(",", ":")) )
+```
+
+The exported request includes the fixed `note: "synthetic publisher"` field, so the same body round-trips through `build_request`. To verify an exported file:
+
+```python
+import json
+from ai_bridge.cli.synthetic_publisher import build_request
+
+exported = json.load(open("velaguard-request-....json"))
+body = {k: v for k, v in exported.items() if k != "payload_hash"}
+built = build_request(device_id=body["device_id"], extra=body)
+assert built["payload_hash"] == exported["payload_hash"]
+```
+
+Implementation note: JavaScript numbers are IEEE-754 doubles. The console preserves the int/float distinction of JSON number tokens while hashing (so `1` and `1.0` produce different hashes, like Python), but values beyond the safe integer range may be rounded when displayed in the browser.
+
 ## Tests
 
 Unit/contract tests do **not** require a live broker or MiMo key. The MiMo
