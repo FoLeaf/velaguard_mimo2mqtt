@@ -48,7 +48,15 @@ class MiMoStubHandler(BaseHTTPRequestHandler):
         if step is None:
             self._send_json(
                 200,
-                chat_completion_response_json({"diagnosis_summary": "stub default"}),
+                chat_completion_response_json(
+                    {
+                        "diagnosis_summary": "stub default",
+                        "risk_level": "low",
+                        "possible_causes": [],
+                        "recommended_actions": [],
+                        "need_shutdown": False,
+                    }
+                ),
             )
             return
 
@@ -132,7 +140,10 @@ class MiMoStubServer(ThreadingHTTPServer):
 
     @property
     def base_url(self) -> str:
-        host, port = self.server_address
+        host = self.server_address[0]
+        port = self.server_address[1]
+        if isinstance(host, bytes):
+            host = host.decode("utf-8")
         return f"http://{host}:{port}"
 
     def pop_step(self) -> dict[str, Any] | None:

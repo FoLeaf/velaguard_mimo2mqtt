@@ -101,6 +101,10 @@ def test_end_to_end_success(require_broker: None) -> None:
         assert success["req_id"] == req_id
         assert success["device_id"] == device_id
         assert success["result"]["source"] == "stub"
+        assert success["result"]["risk_level"] == "low"
+        assert success["result"]["possible_causes"] == []
+        assert success["result"]["need_shutdown"] is False
+        assert success["result"]["confidence"] == 0.0
     finally:
         observer.stop()
         bridge.stop()

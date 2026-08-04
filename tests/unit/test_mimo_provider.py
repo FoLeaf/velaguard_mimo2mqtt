@@ -6,6 +6,7 @@ No live MiMo API key or network access is required.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
@@ -17,6 +18,10 @@ from ai_bridge.providers.schema import (
     SchemaValidationError,
     validate_diagnosis_result,
 )
+from ai_bridge.runtime.prompt_builder import (
+    MAX_USER_CONTENT_CHARS,
+    build_diagnosis_user_content,
+)
 from tests.helpers.mimo_stub_server import (
     MiMoStubServer,
     chat_completion_response_missing_content,
@@ -25,8 +30,8 @@ from tests.helpers.mimo_stub_server import (
 TEST_KEY = "test-mimo-key-not-a-real-secret"
 
 
-def _request(**overrides: object) -> AiRequest:
-    raw: dict[str, object] = {
+def _request(**overrides: Any) -> AiRequest:
+    raw: dict[str, Any] = {
         "req_id": "r1",
         "device_id": "dev01",
         "created_ts_ms": 1_700_000_000_000,
@@ -46,7 +51,7 @@ def _request(**overrides: object) -> AiRequest:
     )
 
 
-def _provider(base_url: str, **kwargs: object) -> MiMoProvider:
+def _provider(base_url: str, **kwargs: Any) -> MiMoProvider:
     return MiMoProvider(
         base_url=base_url,
         model="mimo-chat",
@@ -107,6 +112,10 @@ def test_user_content_truncates_oversized_request_body() -> None:
 def test_success_normalizes_and_adds_source() -> None:
     content = {
         "diagnosis_summary": "  Bearing wear suspected.  ",
+        "risk_level": "medium",
+        "possible_causes": ["bearing wear"],
+        "recommended_actions": ["inspect bearing"],
+        "need_shutdown": False,
         "reasons": ["vibration high"],
         "recommendations": ["inspect bearing"],
         "confidence": 0.9,
@@ -118,6 +127,9 @@ def test_success_normalizes_and_adds_source() -> None:
         result = provider.handle(_request(), deadline_s=10.0)
     assert isinstance(result, ProviderSuccess)
     assert result.result["diagnosis_summary"] == "Bearing wear suspected."
+    assert result.result["risk_level"] == "medium"
+    assert result.result["possible_causes"] == ["bearing wear"]
+    assert result.result["need_shutdown"] is False
     assert result.result["source"] == "mimo"
     assert result.result["reasons"] == ["vibration high"]
     assert result.result["extra_future_field"] == "kept"
@@ -143,6 +155,7 @@ def test_invalid_json_is_provider_error(content: str) -> None:
         result = provider.handle(_request(), deadline_s=10.0)
     assert isinstance(result, ProviderFailure)
     assert result.code == "provider_error"
+    assert result.fallback_eligible is False
 
 
 @pytest.mark.parametrize(
@@ -173,6 +186,7 @@ def test_missing_or_invalid_summary_is_provider_error(payload: dict) -> None:
         {"diagnosis_summary": "ok", "confidence": True},
         {"diagnosis_summary": "ok", "confidence": 1.5},
         {"diagnosis_summary": "ok", "confidence": -0.1},
+        {"diagnosis_summary": "ok", "confidence": 10**1000},
     ],
 )
 def test_bad_optional_types_are_provider_error(payload: dict) -> None:
@@ -182,16 +196,26 @@ def test_bad_optional_types_are_provider_error(payload: dict) -> None:
         result = provider.handle(_request(), deadline_s=10.0)
     assert isinstance(result, ProviderFailure)
     assert result.code == "provider_error"
+    assert result.fallback_eligible is False
 
 
 @pytest.mark.parametrize(
     "payload",
     [
-        {"diagnosis_summary": "ok"},
-        {"diagnosis_summary": "ok", "reasons": [], "recommendations": []},
-        {"diagnosis_summary": "ok", "confidence": 0},
-        {"diagnosis_summary": "ok", "confidence": 1.0},
-        {"diagnosis_summary": "ok", "reasons": ["a"], "confidence": 0.5},
+        {"diagnosis_summary": "ok", "risk_level": "low",
+         "possible_causes": [], "recommended_actions": [], "need_shutdown": False},
+        {"diagnosis_summary": "ok", "risk_level": "medium",
+         "possible_causes": [], "recommended_actions": [],
+         "need_shutdown": False, "reasons": [], "recommendations": []},
+        {"diagnosis_summary": "ok", "risk_level": "high",
+         "possible_causes": ["a"], "recommended_actions": ["b"],
+         "need_shutdown": True, "confidence": 0},
+        {"diagnosis_summary": "ok", "risk_level": "low",
+         "possible_causes": [], "recommended_actions": [],
+         "need_shutdown": False, "confidence": 1.0},
+        {"diagnosis_summary": "ok", "risk_level": "low",
+         "possible_causes": ["a"], "recommended_actions": ["b"],
+         "need_shutdown": False, "reasons": ["a"], "confidence": 0.5},
     ],
 )
 def test_valid_schema_variants_succeed(payload: dict) -> None:
@@ -202,6 +226,39 @@ def test_valid_schema_variants_succeed(payload: dict) -> None:
     assert isinstance(result, ProviderSuccess)
     assert result.result["diagnosis_summary"] == "ok"
     assert result.result["source"] == "mimo"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"diagnosis_summary": "ok", "possible_causes": [],
+         "recommended_actions": [], "need_shutdown": False},  # missing risk_level
+        {"diagnosis_summary": "ok", "risk_level": "extreme",
+         "possible_causes": [], "recommended_actions": [], "need_shutdown": False},
+        {"diagnosis_summary": "ok", "risk_level": "low",
+         "need_shutdown": False},  # missing possible_causes
+        {"diagnosis_summary": "ok", "risk_level": "low",
+         "possible_causes": "not-a-list", "recommended_actions": [],
+         "need_shutdown": False},
+        {"diagnosis_summary": "ok", "risk_level": "low",
+         "possible_causes": [1], "recommended_actions": [], "need_shutdown": False},
+        {"diagnosis_summary": "ok", "risk_level": "low",
+         "possible_causes": [], "recommended_actions": [True],
+         "need_shutdown": False},
+        {"diagnosis_summary": "ok", "risk_level": "low",
+         "possible_causes": [], "recommended_actions": [], "need_shutdown": 1},
+        {"diagnosis_summary": "ok", "risk_level": "low",
+         "possible_causes": [], "recommended_actions": [], "need_shutdown": "yes"},
+    ],
+)
+def test_v2_required_field_errors_are_provider_error(payload: dict) -> None:
+    with MiMoStubServer() as server:
+        server.script.append({"content": json.dumps(payload)})
+        provider = _provider(server.base_url)
+        result = provider.handle(_request(), deadline_s=10.0)
+    assert isinstance(result, ProviderFailure)
+    assert result.code == "provider_error"
+    assert result.fallback_eligible is False
 
 
 def test_missing_message_content_is_provider_error() -> None:
@@ -225,6 +282,7 @@ def test_401_no_retry_and_provider_error() -> None:
         result = provider.handle(_request(), deadline_s=10.0)
     assert isinstance(result, ProviderFailure)
     assert result.code == "provider_error"
+    assert result.fallback_eligible is True
     assert len(server.requests) == 1  # no retry
 
 
@@ -235,6 +293,7 @@ def test_400_no_retry_and_provider_error() -> None:
         result = provider.handle(_request(), deadline_s=10.0)
     assert isinstance(result, ProviderFailure)
     assert result.code == "provider_error"
+    assert result.fallback_eligible is True
     assert len(server.requests) == 1
 
 
@@ -242,7 +301,17 @@ def test_429_then_success_retries() -> None:
     with MiMoStubServer() as server:
         server.script.append({"status": 429, "body": {"error": "rate limited"}})
         server.script.append(
-            {"content": json.dumps({"diagnosis_summary": "ok after retry"})}
+            {
+                "content": json.dumps(
+                    {
+                        "diagnosis_summary": "ok after retry",
+                        "risk_level": "low",
+                        "possible_causes": [],
+                        "recommended_actions": [],
+                        "need_shutdown": False,
+                    }
+                )
+            }
         )
         provider = _provider(server.base_url)
         result = provider.handle(_request(), deadline_s=10.0)
@@ -260,6 +329,7 @@ def test_500_exhausted_retries_is_provider_error() -> None:
         result = provider.handle(_request(), deadline_s=10.0)
     assert isinstance(result, ProviderFailure)
     assert result.code == "provider_error"
+    assert result.fallback_eligible is True
     assert len(server.requests) == 3  # 1 initial + 2 retries
 
 
@@ -270,6 +340,7 @@ def test_no_retry_when_max_retries_zero() -> None:
         result = provider.handle(_request(), deadline_s=10.0)
     assert isinstance(result, ProviderFailure)
     assert result.code == "provider_error"
+    assert result.fallback_eligible is True
     assert len(server.requests) == 1
 
 
@@ -288,6 +359,7 @@ def test_final_attempt_never_sleeps_past_deadline() -> None:
         result = provider.handle(_request(), deadline_s=0.5)
     assert isinstance(result, ProviderFailure)
     assert result.code == "provider_error"
+    assert result.fallback_eligible is True
     assert len(server.requests) == 1
 
 
@@ -312,6 +384,7 @@ def test_slow_response_times_out_with_code_timeout() -> None:
         result = provider.handle(_request(), deadline_s=0.3)
     assert isinstance(result, ProviderFailure)
     assert result.code == "timeout"
+    assert result.fallback_eligible is False
 
 
 def test_zero_deadline_is_immediate_timeout() -> None:
@@ -319,6 +392,7 @@ def test_zero_deadline_is_immediate_timeout() -> None:
     result = provider.handle(_request(), deadline_s=0.0)
     assert isinstance(result, ProviderFailure)
     assert result.code == "timeout"
+    assert result.fallback_eligible is False
 
 
 def test_network_error_retries_then_provider_error() -> None:
@@ -327,6 +401,55 @@ def test_network_error_retries_then_provider_error() -> None:
     result = provider.handle(_request(), deadline_s=10.0)
     assert isinstance(result, ProviderFailure)
     assert result.code == "provider_error"
+    assert result.fallback_eligible is True
+
+
+# ---------------------------------------------------------------------------
+# injected prompt builder (skill runtime)
+# ---------------------------------------------------------------------------
+
+
+def test_injected_user_content_contains_normalized_context() -> None:
+    req = _request(
+        context={
+            "event": {"event_id": "evt_1", "severity": "critical"},
+            "history": [{"ts_ms": 1, "values": {"temperature": 90}}],
+            "rules": [{"rule_id": "r1", "expr": "temperature > 70"}],
+            "device": {"name": "Motor Temp"},
+        }
+    )
+    with MiMoStubServer() as server:
+        provider = _provider(
+            server.base_url,
+            user_content_builder=build_diagnosis_user_content,
+        )
+        result = provider.handle(req, deadline_s=10.0)
+        assert isinstance(result, ProviderSuccess)
+
+    user = json.loads(server.requests[0]["body"]["messages"][1]["content"])
+    assert user["context"]["event"]["severity"] == "critical"
+    assert user["context"]["history"][0]["values"]["temperature"] == 90
+    assert user["context"]["rules"][0]["rule_id"] == "r1"
+    assert user["context"]["device"]["name"] == "Motor Temp"
+    assert "context_notes" not in user
+
+
+def test_injected_user_content_is_bounded_and_contains_no_api_key() -> None:
+    huge_history = [
+        {"ts_ms": i, "values": {"v": "x" * 500}} for i in range(60)
+    ]
+    req = _request(context={"history": huge_history})
+    with MiMoStubServer() as server:
+        provider = _provider(
+            server.base_url,
+            user_content_builder=build_diagnosis_user_content,
+        )
+        result = provider.handle(req, deadline_s=10.0)
+        assert isinstance(result, ProviderSuccess)
+
+    body = server.requests[0]["body"]
+    assert len(body["messages"][1]["content"]) <= MAX_USER_CONTENT_CHARS
+    assert TEST_KEY not in json.dumps(body["messages"])
 
 
 # ---------------------------------------------------------------------------
@@ -379,7 +502,14 @@ def test_build_provider_unknown_name_raises() -> None:
 
 
 def test_schema_passes_through_unknown_keys() -> None:
-    data = {"diagnosis_summary": "ok", "future_meta": {"a": 1}}
+    data = {
+        "diagnosis_summary": "ok",
+        "risk_level": "low",
+        "possible_causes": [],
+        "recommended_actions": [],
+        "need_shutdown": False,
+        "future_meta": {"a": 1},
+    }
     normalized = validate_diagnosis_result(data)
     assert normalized["future_meta"] == {"a": 1}
 

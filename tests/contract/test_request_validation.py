@@ -73,3 +73,16 @@ def test_oversized_ordinary_payload_rejected() -> None:
     with pytest.raises(RequestValidationError) as exc:
         parse_request(huge, topic_device_id="dev01")
     assert "size limit" in exc.value.message
+
+
+def test_context_object_accepted() -> None:
+    data = _valid(context={"event": {"severity": "warning"}})
+    req = parse_request(data, topic_device_id="dev01")
+    assert req.raw["context"]["event"]["severity"] == "warning"
+
+
+@pytest.mark.parametrize("bad", [None, [], ["x"], "text", 42, True])
+def test_context_non_object_rejected(bad: object) -> None:
+    with pytest.raises(RequestValidationError) as exc:
+        parse_request(_valid(context=bad), topic_device_id="dev01")
+    assert "context must be an object" in exc.value.message

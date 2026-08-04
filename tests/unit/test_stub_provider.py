@@ -25,6 +25,13 @@ def test_stub_success_shape() -> None:
     assert result.result["source"] == "stub"
     assert result.result["advisory_only"] is True
     assert "diagnosis_summary" in result.result
+    assert result.result["risk_level"] == "low"
+    assert result.result["possible_causes"] == []
+    assert result.result["recommended_actions"] == [
+        "Retry with PROVIDER=mimo for live diagnosis"
+    ]
+    assert result.result["need_shutdown"] is False
+    assert result.result["confidence"] == 0.0
 
 
 def test_stub_timeout_when_delay_exceeds_deadline() -> None:
