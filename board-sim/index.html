@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VelaGuard 板端 HMI 模拟器</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="vendor/mqtt.min.js" defer></script>
+  <script src="board-core.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <div class="app">
+    <header class="topbar">
+      <div class="topbar-main">
+        <h1>VelaGuard 板端 HMI 模拟器</h1>
+        <p class="subtitle">480×272 板端 UI 复刻：Mock 离线演示，真实模式经 MQTT WebSocket 直连 AI Bridge</p>
+      </div>
+      <div class="topbar-badges">
+        <div class="mode-toggle" role="group" aria-label="运行模式">
+          <button type="button" class="mode-btn is-active" data-mode="real" data-testid="mode-real">真实</button>
+          <button type="button" class="mode-btn" data-mode="mock" data-testid="mode-mock">Mock</button>
+        </div>
+        <span id="conn-badge" class="badge badge-ghost" data-testid="conn-badge">未连接</span>
+      </div>
+    </header>
+
+    <main id="main" class="layout">
+      <section class="board-stage" aria-label="板端模拟屏">
+        <div class="board-scale" id="board-scale">
+          <div class="board-frame" id="board-frame">
+            <div class="status-bar">
+              <button id="back-btn" class="back-btn" type="button" hidden aria-label="返回">&lt;</button>
+              <span id="page-title" class="page-title">VelaGuard</span>
+              <span class="spacer"></span>
+              <span id="chip-net" class="chip chip-info" data-testid="chip-net">NET</span>
+              <span id="chip-mimo" class="chip chip-info" data-testid="chip-mimo">MiMo</span>
+              <span id="chip-acq" class="chip chip-ok" data-testid="chip-acq">ACQ</span>
+              <span id="chip-aud" class="chip chip-ok" data-testid="chip-aud">AUD</span>
+              <span id="status-time" class="status-time">--:--</span>
+            </div>
+            <div class="content" id="content"></div>
+            <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="toolbar" aria-label="开发工具栏">
+        <section class="tool-group" aria-labelledby="conn-title">
+          <h2 id="conn-title">MQTT 连接</h2>
+          <div class="field-grid">
+            <label class="field field-wide">
+              <span>Broker WebSocket URL</span>
+              <input id="f-broker-url" type="text" autocomplete="off" spellcheck="false" value="ws://107.174.123.74:9001">
+            </label>
+            <label class="field">
+              <span>client_id</span>
+              <input id="f-client-id" type="text" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="field">
+              <span>用户名（可选）</span>
+              <input id="f-mqtt-user" type="text" autocomplete="username" spellcheck="false">
+            </label>
+            <label class="field">
+              <span>密码（可选）</span>
+              <input id="f-mqtt-pass" type="password" autocomplete="current-password" spellcheck="false">
+            </label>
+          </div>
+          <div class="conn-row">
+            <button id="btn-connect" class="btn btn-primary" type="button" data-testid="btn-connect">连接</button>
+            <button id="btn-disconnect" class="btn btn-ghost" type="button" data-testid="btn-disconnect">断开</button>
+            <span id="conn-status" class="badge badge-ghost" data-testid="conn-status">未连接</span>
+          </div>
+          <p id="conn-message" class="status-message" role="status" aria-live="polite"></p>
+          <p class="hint">发送时先订阅 vg/{device_id}/ai/response/{req_id}（QoS 1）再发布请求；断连后可随时切 Mock 继续演示。</p>
+        </section>
+
+        <section class="tool-group" aria-labelledby="scenario-title">
+          <h2 id="scenario-title">场景（等价板端数字键 1-6）</h2>
+          <div id="scenario-buttons" class="scenario-grid" role="group" aria-label="场景切换"></div>
+        </section>
+
+        <section class="tool-group" aria-labelledby="request-title">
+          <h2 id="request-title">诊断请求</h2>
+          <div class="field-grid">
+            <label class="field">
+              <span>device_id</span>
+              <input id="f-device-id" type="text" autocomplete="off" spellcheck="false" value="dev01" data-testid="f-device-id">
+            </label>
+          </div>
+          <p class="hint">真实模式用当前模型状态构建 context（活动告警、最近 50 点历史、阈值规则、设备描述）后发布。</p>
+        </section>
+
+        <section class="tool-group traffic-group" aria-labelledby="traffic-title">
+          <h2 id="traffic-title">
+            <button id="traffic-toggle" class="traffic-toggle" type="button" aria-expanded="false" data-testid="traffic-toggle">流量日志</button>
+            <button id="btn-clear-traffic" class="btn btn-ghost btn-small" type="button" data-testid="btn-clear-traffic">清空</button>
+          </h2>
+          <div id="traffic-panel" class="traffic-panel" hidden>
+            <p class="hint">真实与 Mock 消息都会记录；密码不会出现在日志中。</p>
+            <ul id="traffic-list" class="traffic-list"></ul>
+          </div>
+        </section>
+      </aside>
+    </main>
+  </div>
+</body>
+</html>
