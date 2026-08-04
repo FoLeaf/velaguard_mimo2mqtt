@@ -143,3 +143,24 @@ Added MiMoProvider (OpenAI-compatible chat completions) behind the Provider seam
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: Unify board simulator and debug console
+
+**Date**: 2026-08-04
+**Task**: Unify board simulator and debug console
+**Branch**: `main`
+
+### Summary
+
+Merged board-sim and debug-console into one static board-centered page with a shared MQTT/Mock request service, request/response drawer, compatibility redirect, contract and browser smoke coverage, and wider response/timeline/history areas with a one-click collapse button. Committed as eede8f3 and archived Trellis task 6083d56.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `eede8f3` | (see git log) |
+
+### Status
+
+[OK] **Completed**
