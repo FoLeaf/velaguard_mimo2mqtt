@@ -49,6 +49,7 @@ tests/
   integration/
 deploy/dev/                            # Mosquitto compose for local verification
 debug-console/                         # developer-only console (offline mock + optional dev-broker WebSocket mode)
+board-sim/                             # 480x272 board HMI web replica (offline mock + optional dev-broker WebSocket mode)
 ```
 
 Create only modules needed by the implemented slice. Do not scaffold empty framework layers merely to match this map. TTS/ASR/manual/OTA packages appear only when those slices are implemented.

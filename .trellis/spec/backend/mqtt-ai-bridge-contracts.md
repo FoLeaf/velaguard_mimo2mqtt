@@ -84,8 +84,9 @@ The response returns the same `req_id`. For device events, preserve `event_id` a
 
 `payload_hash` is SHA-256 over the canonical request body (excluding `payload_hash` itself)
 serialized as `json.dumps(body, sort_keys=True, separators=(",", ":"))`, matching
-`ai_bridge.cli.synthetic_publisher.build_request`. Browser mocks such as `debug-console/app.js`
-must reproduce that canonical form byte-for-byte for the same body.
+`ai_bridge.cli.synthetic_publisher.build_request`. Browser mocks such as
+`debug-console/app.js` and `board-sim/board-core.js` must reproduce that canonical form
+byte-for-byte for the same body.
 
 Device time fields are Unix milliseconds plus runtime context:
 

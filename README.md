@@ -203,6 +203,77 @@ assert built["payload_hash"] == exported["payload_hash"]
 
 Implementation note: JavaScript numbers are IEEE-754 doubles. The console preserves the int/float distinction of JSON number tokens while hashing (so `1` and `1.0` produce different hashes, like Python), but values beyond the safe integer range may be rounded when displayed in the browser.
 
+## Board simulator
+
+`board-sim/index.html` is a dependency-free web replica of the 480x272
+VelaGuard board HMI. It renders the board shell (status bar, navigation
+stack, toast) and the home / device / trend / alarm / diagnosis / logs pages
+faithfully from the LVGL sources under
+`D:/Study/Embeded/Velaguard/GUI/main/ui/`, and is wired to the real AI Bridge
+through the same MQTT-over-WebSocket channel as the debug console.
+
+Open it directly:
+
+- Double-click `board-sim/index.html`, or
+- run `start board-sim/index.html` on Windows.
+
+No build step, no npm, no CDN: mqtt.js is vendored under
+`board-sim/vendor/mqtt.min.js` (same version as `debug-console/vendor`).
+
+### Modes
+
+- **Real mode (default).** Clicking AI 诊断 auto-connects to the broker in
+  the connection panel (default `ws://107.174.123.74:9001`), builds a
+  structured `context` from the current board model (active alarm, selected
+  sensor history up to 50 points, threshold rules up to 20, device
+  description), subscribes `vg/{device_id}/ai/response/{req_id}` (QoS 1),
+  publishes `vg/{device_id}/ai/request` (QoS 1, not retained) with an
+  auto-computed `payload_hash`, and renders `processing` then the terminal
+  envelope. `success + source=mimo` shows the OK page, `success +
+  source=fallback` shows the OK page with a degradation hint, and `error`
+  shows the error code/message with a retry button. A 60 s local watchdog
+  cancels pending requests; disconnect, publish failures, and offline events
+  are shown inline and never crash the page. You can switch to Mock at any
+  time.
+- **Mock mode.** Fully offline. The six scenarios (正常/预警/严重/离线/
+  AI不可用/OTA中) mirror `vg_model.c`; mock diagnosis reproduces
+  `vg_model_request_diagnosis` (loading, then OK or immediate `MiMo 不可用`
+  error). Sensor values, trends, alarms, and logs are local model data in
+  both modes; only the AI diagnosis request/response is real in real mode.
+
+### Board replica relationship
+
+The board frame is a page-for-page replica of the current
+`main/ui/` sources: shell layout (`vg_shell.c`), model semantics
+(`vg_model.c`, including fleet seeding, scenario changes, home filter and
+counts, alarm ack/mute, log rotation), theme tokens (`vg_theme.h` /
+`vg_display.h`: colors, 4px radius, 6px padding, 36x40px touch targets, 40px
+list rows), and page copy/behavior (`vg_page_*.c`). When the C UI changes,
+sync `board-sim/` accordingly. The current home page uses the filter bar +
+scrollable sensor list + alarm strip + action row (the tile-grid variant was
+an earlier iteration).
+
+### Contract fidelity
+
+`board-sim/board-core.js` owns the canonical JSON + SHA-256 implementation
+for the simulator (copied with attribution from `debug-console/app.js` so
+each directory stays independent; keep the two copies in sync).
+`tests/contract/test_debug_console_hash_parity.py` checks both against
+Python, and `tests/contract/test_board_sim_core.py` checks the context
+shape, v2 result mapping, mock diagnosis outcomes, and a real built request.
+An automated headless smoke check is included:
+`python board-sim/e2e_smoke.py --real` (needs python-playwright and a local
+Chrome/Edge; `--real` also sends one live diagnosis and records
+req_id/status/source).
+
+### Security note
+
+The default dev broker (`ws://107.174.123.74:9001`) is anonymous plaintext
+and publicly reachable; it is the existing dev posture and is **not**
+production-safe. Production must use MQTTS, per-device credentials/tokens,
+and Broker ACLs. A password entered in the browser stays in browser memory
+only: it is never echoed back, printed, or written into the traffic log.
+
 ## Tests
 
 Unit/contract tests do **not** require a live broker or MiMo key. The MiMo
