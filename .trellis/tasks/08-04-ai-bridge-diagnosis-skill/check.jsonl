@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Minimum test coverage, forbidden patterns and review checklist for this change"}
+{"file": ".trellis/spec/backend/mqtt-ai-bridge-contracts.md", "reason": "Verify v2 result, context contract and fallback matrix are updated and consistent"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify timeout/schema-invalid never fallback and provider_error path is correct"}
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "Verify secret isolation and no AI output bypasses device-side confirmation"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify validation has a single owner and no duplicated context/result parsing"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify data flow across request validation, runtime, provider and fallback layers"}

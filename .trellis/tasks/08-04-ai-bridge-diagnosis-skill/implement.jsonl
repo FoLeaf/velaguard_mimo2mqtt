@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Pre-dev checklist, selected implementation choices, source-of-truth rules and constraint list"}
+{"file": ".trellis/spec/backend/mqtt-ai-bridge-contracts.md", "reason": "v1 envelope/result schema to extend with v2 diagnosis result and context contract"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Provider failure classification, retry and fallback publication rules"}
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "Secret handling and AI-advisory constraints for prompt/skill/fallback work"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Module boundaries and dependency direction for new runtime package"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Correlated, redacted logging for skill loading, context normalization and fallback"}
