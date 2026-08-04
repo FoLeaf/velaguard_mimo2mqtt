@@ -1,0 +1,28 @@
+{
+  "id": "unify-board-debug-console",
+  "name": "unify-board-debug-console",
+  "title": "合并板端模拟器与调试控制台",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "frontend-tooling",
+  "package": null,
+  "priority": "P2",
+  "creator": "19y",
+  "assignee": "19y",
+  "createdAt": "2026-08-04",
+  "completedAt": "2026-08-04",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "将 board-sim 板端 HMI 模拟器与 debug-console 请求调试台合并为一个可本地打开的统一开发页面，保留 Mock/真实 MQTT 诊断能力及调试查看能力。"
+  }
+}
