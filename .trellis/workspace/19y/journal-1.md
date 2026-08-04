@@ -164,3 +164,24 @@ Merged board-sim and debug-console into one static board-centered page with a sh
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: Prefer Chinese diagnosis output
+
+**Date**: 2026-08-04
+**Task**: Prefer Chinese diagnosis output
+**Branch**: `main`
+
+### Summary
+
+Added Chinese-first language instructions to diagnosis prompts and skills, localized fallback and StubProvider results, updated backend language contract and regression tests. Full pytest, ruff, mypy, and compileall passed. Remote MiMo Bridge still needs this commit deployed and restarted.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fe64234` | (see git log) |
+
+### Status
+
+[OK] **Completed**

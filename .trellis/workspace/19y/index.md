@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-08-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~166 | Active |
+| `journal-1.md` | ~187 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-08-04 | Prefer Chinese diagnosis output | `fe64234` | `main` |
 | 7 | 2026-08-04 | Unify board simulator and debug console | `eede8f3` | `main` |
 | 6 | 2026-08-04 | VelaGuard 板端 HMI Web 模拟器（真实后端） | `8a01dca`, `9e6b032`, `bd8df09` | `main` |
 | 5 | 2026-08-04 | VelaGuard debug console：真实后端 + 单屏布局 | `3ee134d`, `d964e64`, `1573d2f` | `main` |
