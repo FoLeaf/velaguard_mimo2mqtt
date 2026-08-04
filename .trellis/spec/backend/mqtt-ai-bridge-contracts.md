@@ -204,6 +204,9 @@ Ordinary AI JSON payload soft limit in code: **64 KiB**. Larger content does not
 | `PROVIDER` | `stub` | no (`mimo` reserved) |
 | `LOG_LEVEL` | `INFO` | no |
 | `STUB_DELAY_MS` | `0` | no (test aid) |
+| `SKILLS_DIR` | package `ai_bridge/skills` | no (skill markdown directory) |
+| `DIAGNOSIS_SKILL` | `industrial_fault_diagnosis` | no (`^[a-z0-9_]+$`) |
+| `FALLBACK_ENABLED` | `true` | no (degraded fallback switch) |
 
 ### 4. Validation & Error Matrix
 
@@ -246,7 +249,7 @@ Ordinary AI JSON payload soft limit in code: **64 KiB**. Larger content does not
 - Store the published response dict and replay it byte-for-byte for completed duplicates.
 - Dispatch inbound MQTT messages to worker threads; keep claim/complete under one idempotency lock.
 
-## Scenario: MiMo provider (v1 diagnosis adapter)
+## Scenario: MiMo provider (diagnosis adapter)
 
 ### 1. Scope / Trigger
 
@@ -273,14 +276,18 @@ Real MiMo HTTPS adapter behind the `Provider` seam. MQTT v1 envelope unchanged. 
 
 **Request body**: `{"model": MIMO_MODEL, "messages": [{"role":"system",...},{"role":"user",...}], "temperature": 0, "response_format": {"type":"json_object"}}`
 
-**Result schema (v1 diagnosis)** — validated before success:
+**Result schema (v2 diagnosis)** — validated before success:
 
 | Field | Type | Rule |
 |---|---|---|
 | `diagnosis_summary` | string | required, non-empty |
+| `risk_level` | string | required, `low` \| `medium` \| `high` |
+| `possible_causes` | list[string] | required, empty allowed |
+| `recommended_actions` | list[string] | required, empty allowed |
+| `need_shutdown` | boolean | required; bool-like ints rejected |
 | `reasons` | list[str] | optional |
 | `recommendations` | list[str] | optional |
-| `confidence` | number | optional, 0..1 |
+| `confidence` | number | optional, 0..1; bool rejected |
 | (unknown keys) | any | passed through |
 
 Adapter adds `"source": "mimo"` on success.
@@ -297,6 +304,8 @@ Adapter adds `"source": "mimo"` on success.
 | unexpected exception | abort | timeout (bounded by deadline) |
 
 Never map provider failure to `internal_error`. On the final retry attempt, do **not** sleep past the remaining deadline (otherwise `provider_error` flips to `timeout`).
+
+Failure classification for fallback: schema-invalid output has `fallback_eligible=False`; 401/403/400, exhausted 429/5xx, and network failures have `fallback_eligible=True`. Timeout always has `fallback_eligible=False`.
 
 ### 5. Good / Base / Bad Cases
 
@@ -320,6 +329,113 @@ Never map provider failure to `internal_error`. On the final retry attempt, do *
 
 - Sleep backoff only when a further attempt is possible; exhausted transients → `provider_error`.
 - `provider_error` for any MiMo output that fails the fixed JSON schema; no success without validation.
+
+## Scenario: Diagnosis context + v2 result + fallback
+
+### 1. Scope / Trigger
+
+`type=diagnosis` requests may carry an optional structured `context` payload.
+The bridge normalizes that context into a bounded prompt, loads a diagnosis
+Skill file, and, when MiMo fails for an eligible transport reason, publishes a
+schema-valid degraded fallback result instead of only an error envelope.
+
+### 2. Signatures
+
+- Request: v1 fields + optional top-level `context` object.
+- Context normalization: `ai_bridge.runtime.json_validator.normalize_diagnosis_context(raw_context) -> ContextBundle`
+- Prompt: `ai_bridge.runtime.prompt_builder.build_diagnosis_messages(request, skill_text)`
+- Skill: `ai_bridge.runtime.skill_manager.SkillManager(skills_dir).load(DIAGNOSIS_SKILL)`
+- Fallback: `ai_bridge.runtime.fallback.build_fallback_diagnosis(request, reason) -> dict`
+- Assembly: `build_provider("mimo")` injects `system_prompt` + `user_content_builder` into `MiMoProvider`.
+
+### 3. Contracts
+
+**Request `context` (optional)**
+
+| Field | Type | Rule |
+|---|---|---|
+| `context` | object | present but non-object → `validation_error` |
+| `context.event` | object | non-object → warn + drop |
+| `context.device` | object | non-object → warn + drop |
+| `context.history` | array | max 50 entries; non-object entries dropped; oversized serialization truncated |
+| `context.rules` | array | max 20 entries; non-object entries dropped; oversized serialization truncated |
+
+Section serialization limits: event 4096 chars, device 2048 chars, rules 8192
+chars, history 16384 chars. Truncation appends a `...[truncated]` marker and
+logs a warning. Missing sections are reported as `context_notes` in the user
+prompt. History entries missing `ts_ms`/`values` are kept with an explicit
+`__missing__` marker list and a warning. The single user message is bounded to
+8192 chars (identity fields are truncated if needed so the bound holds
+unconditionally).
+
+**Result schema v2** — shared by MiMo, stub, and fallback:
+
+| Field | Type | Rule |
+|---|---|---|
+| `diagnosis_summary` | string | required, non-empty |
+| `risk_level` | string | required, `low` \| `medium` \| `high` |
+| `possible_causes` | list[string] | required, empty allowed |
+| `recommended_actions` | list[string] | required, empty allowed |
+| `need_shutdown` | boolean | required; bool-like ints rejected |
+| `confidence` | number | optional, `[0, 1]`; bool rejected; range check must compare directly (`0.0 <= x <= 1.0`), never via `float(x)` conversion |
+| `reasons` / `recommendations` | list[string] | optional, legacy |
+| (unknown keys) | any | passed through |
+
+`ai_bridge/providers/schema.py::validate_diagnosis_result` is the single
+validation owner for provider/fallback/stub output.
+
+**Fallback semantics**
+
+- Trigger: `ProviderFailure(code="provider_error")` with `fallback_eligible=True`,
+  `FALLBACK_ENABLED=true`, and remaining request budget > 0.
+- Result: `status=success`, `result.source="fallback"`,
+  `result.advisory_only=true`, `result.confidence=0.0`, plus
+  `result.fallback_reason`; passes v2 schema.
+- The fallback response is stored like any success and replayed exactly on
+  duplicate requests.
+- No new envelope status (`degraded` is not added).
+
+**Error matrix**
+
+| Scenario | Published |
+|---|---|
+| MiMo success (v2 valid) | `success` + `source=mimo` |
+| MiMo schema-invalid | `error` + `provider_error` (no fallback) |
+| MiMo HTTP/network failure, budget remains, fallback enabled | `success` + `source=fallback` |
+| Deadline exceeded | `error` + `timeout` (no fallback) |
+| `FALLBACK_ENABLED=false` | `error` + `provider_error` |
+
+### 4. Tests Required
+
+- Context normalization: non-object drop, history 50 / rules 20 limits, marker
+  truncation, missing-section notes, total user-content bound.
+- Skill manager: load/cache, missing/empty fallback, name whitelist.
+- Fallback builder: v2 schema validity, severity→risk mapping, fixed template.
+- Application: fallback trigger, disabled/ineligible/timeout/budget-exhausted
+  non-trigger, exact replay, builder failure → `internal_error`.
+- MiMo: injected prompt contains context, `fallback_eligible` classification,
+  no API key in prompt/logs.
+
+### 5. Wrong vs Correct
+
+#### Wrong
+
+- Falling back on schema-invalid MiMo output or after the deadline.
+- Publishing fallback when `FALLBACK_ENABLED=false`.
+- Letting fallback echo arbitrary raw payload into the summary.
+- Truncating the user message into invalid JSON.
+- Validating numeric ranges with `float(x)` — huge integers (e.g. `10**1000`)
+  raise `OverflowError`, which escapes the schema-invalid path and surfaces as
+  `internal_error` instead of `provider_error`.
+
+#### Correct
+
+- Fallback only for eligible transport/provider failures inside the budget.
+- Template-based, schema-validated fallback result with `source=fallback`.
+- Bounded, valid-JSON prompt; missing context explicitly marked.
+- Idempotent replay for fallback responses identical to normal success.
+- Compare numeric fields directly against the range so out-of-range values are
+  rejected as `provider_error` without conversion or overflow.
 
 ## Source References
 

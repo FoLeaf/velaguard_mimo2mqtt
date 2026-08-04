@@ -47,6 +47,9 @@ When these guidelines and either root document disagree, stop and resolve the di
 | Persistence | In-memory idempotency only | Explicitly disposable; not restart-safe production |
 | Provider | `StubProvider` default; `MiMoProvider` via `PROVIDER=mimo` | OpenAI-compatible chat completions; key via `MIMO_API_KEY` env |
 | HTTP client | `requests` ≥ 2.31 | MiMo adapter only, isolated in `providers/mimo.py` |
+| Agent Runtime | `ai_bridge/runtime/` (`skill_manager`, `prompt_builder`, `json_validator`, `fallback`) | Diagnosis skill loading, bounded prompt assembly, tolerant context normalization, degraded fallback |
+| Diagnosis skill data | `ai_bridge/skills/*.md` (default `industrial_fault_diagnosis`) | Runtime markdown data; missing/unreadable file falls back to a built-in prompt with a warning |
+| Fallback semantics | `status=success` + `result.source="fallback"` | Only for eligible provider failures (`fallback_eligible=True`) with remaining request budget; no new envelope status |
 | Tests | `pytest` | `pytest tests/unit tests/contract`; integration needs Mosquitto |
 | Local Broker | Docker Compose Mosquitto | `deploy/dev/docker-compose.yml`; plaintext localhost only |
 

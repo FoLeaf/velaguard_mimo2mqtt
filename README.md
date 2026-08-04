@@ -3,10 +3,10 @@
 Cloud-side AI Bridge for VelaGuard. This repository owns the **backend bridge only** (no device firmware).
 
 ```text
-VelaGuard -> MQTT Broker -> AI Bridge -> HTTPS providers (MiMo later)
+VelaGuard -> MQTT Broker -> AI Bridge -> HTTPS providers (MiMo)
 ```
 
-This first slice proves one end-to-end MQTT AI request/response loop with a pluggable provider (default **stub**, no live MiMo credentials required). A real OpenAI-compatible **MiMo** HTTPS provider is included behind the same seam and is opt-in via `PROVIDER=mimo`.
+This first slice proves one end-to-end MQTT AI request/response loop with a pluggable provider (default **stub**, no live MiMo credentials required). A real OpenAI-compatible **MiMo** HTTPS provider is included behind the same seam and is opt-in via `PROVIDER=mimo`. `type=diagnosis` requests carry an optional structured `context` object (event, history, rules, device description) that the bridge normalizes into a bounded prompt, and provider failures fall back to a schema-valid degraded result instead of a bare error.
 
 ## Features
 
@@ -17,6 +17,9 @@ This first slice proves one end-to-end MQTT AI request/response loop with a plug
 - In-memory idempotency on `req_id + payload_hash`
 - Pluggable `Provider` interface with default `StubProvider`
 - Publish v1 response envelope on `vg/{device_id}/ai/response/{req_id}` QoS 1, not retained
+- Normalize diagnosis context (`event` / `history` / `rules` / `device`) with tolerant drop/truncate rules
+- Load `industrial_fault_diagnosis` skill markdown with built-in fallback prompt
+- Fallback to `status=success` + `result.source="fallback"` when MiMo fails but the request budget remains
 - Bounded request deadline → `status=error`, `error_code=timeout`
 - Secrets never written into MQTT payloads or plain logs
 
@@ -80,6 +83,33 @@ Useful environment variables:
 | `PROVIDER` | `stub` | Provider selection (`stub` or `mimo`) |
 | `STUB_DELAY_MS` | `0` | Artificial stub delay (timeout tests) |
 | `LOG_LEVEL` | `INFO` | Logging level |
+| `SKILLS_DIR` | *(package `ai_bridge/skills`)* | Directory with skill markdown files |
+| `DIAGNOSIS_SKILL` | `industrial_fault_diagnosis` | Diagnosis skill file name (`^[a-z0-9_]+$`) |
+| `FALLBACK_ENABLED` | `true` | Publish degraded fallback success on eligible provider failures |
+
+### Diagnosis context contract
+
+`type=diagnosis` requests may include an optional top-level `context` object:
+
+```json
+{
+  "context": {
+    "event": {"event_id": "evt_1", "severity": "warning", "title": "...", "current_value": 82.4},
+    "history": [{"ts_ms": 1782450000000, "values": {"temperature": 72.8}}],
+    "rules": [{"rule_id": "r1", "expr": "temperature > 70"}],
+    "device": {"name": "Motor Temp", "model": "RS485-TH-1", "description": "..."}
+  }
+}
+```
+
+Rules:
+
+- `context` present but not an object → `validation_error`.
+- `event` / `device` not objects, `history` / `rules` not arrays → dropped with a warning; the request still processes.
+- `history` keeps the first 50 entries, `rules` keeps the first 20; non-object entries are dropped.
+- Oversized sections are truncated with a `...[truncated]` marker.
+- Missing sections are explicitly listed as `context_notes` in the provider prompt.
+- History entries missing `ts_ms`/`values` are kept with an explicit `__missing__` marker.
 
 ### MiMo provider (optional, `PROVIDER=mimo`)
 
@@ -95,8 +125,13 @@ Useful environment variables:
 MiMo responses are forced to JSON (`response_format={"type":"json_object"}`) and
 schema-validated before being published as success. Invalid output is published
 as `status=error`, `error_code=provider_error`, never success. The result carries
-`"source": "mimo"`. The HTTPS adapter uses `requests` as its synchronous HTTP
-client (blocking call on MQTT worker threads), added to `pyproject.toml`.
+`"source": "mimo"`. When MiMo fails with an HTTP/network error (not schema
+invalid, not a deadline breach) and the request budget still has time, the
+bridge publishes `status=success` with a degraded fallback result
+(`source="fallback"`, `advisory_only=true`). Disable this with
+`FALLBACK_ENABLED=false` to restore the plain `provider_error` behavior.
+The HTTPS adapter uses `requests` as its synchronous HTTP client (blocking call
+on MQTT worker threads), added to `pyproject.toml`.
 
 **Secret note (mandatory).** `MIMO_API_KEY` is a live credential. It is injected
 only via the deploy-time server environment (server-local `.env`, gitignored).
@@ -178,12 +213,33 @@ Stub diagnosis success places structured content under `result`:
 ```json
 {
   "diagnosis_summary": "stub: no live MiMo call",
+  "risk_level": "low",
+  "possible_causes": [],
+  "recommended_actions": ["Retry with PROVIDER=mimo for live diagnosis"],
+  "need_shutdown": false,
+  "confidence": 0.0,
   "source": "stub",
   "advisory_only": true
 }
 ```
 
-AI output is advisory only; the bridge never authorizes device writes.
+### v2 diagnosis result schema (MiMo / stub / fallback)
+
+| Field | Type | Rule |
+|---|---|---|
+| `diagnosis_summary` | string | required, non-empty |
+| `risk_level` | string | required, `low` \| `medium` \| `high` |
+| `possible_causes` | list[string] | required, empty allowed |
+| `recommended_actions` | list[string] | required, empty allowed |
+| `need_shutdown` | boolean | required, bool-like ints rejected |
+| `confidence` | number | optional, `[0, 1]`, bool rejected |
+| `reasons` / `recommendations` | list[string] | optional, legacy compatibility |
+| `source` | string | bridge-added: `mimo` \| `stub` \| `fallback` |
+| `advisory_only` | boolean | stub/fallback only |
+| `fallback_reason` | string | fallback only |
+
+Unknown extra keys pass through. AI output is advisory only; the bridge never
+authorizes device writes.
 
 ## Package layout
 
@@ -194,6 +250,8 @@ ai_bridge/
   transport/mqtt/  # paho client, subscribe/publish
   application/     # orchestration + deadline + idempotency decisions
   providers/       # Provider protocol + StubProvider + MiMoProvider
+  runtime/         # skill_manager, prompt_builder, json_validator, fallback
+  skills/          # industrial_fault_diagnosis.md (packaged skill data)
   persistence/     # in-memory disposable idempotency store
   observability/   # logging + redaction
   cli/             # synthetic publisher
