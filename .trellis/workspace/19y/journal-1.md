@@ -120,3 +120,26 @@ Added MiMoProvider (OpenAI-compatible chat completions) behind the Provider seam
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: VelaGuard 板端 HMI Web 模拟器（真实后端）
+
+**Date**: 2026-08-04
+**Task**: VelaGuard 板端 HMI Web 模拟器（真实后端）
+**Branch**: `main`
+
+### Summary
+
+新增 board-sim/：480×272 板端 HMI 忠实复刻（home/device/trend/alarm/diagnosis/logs + shell/toast/返回栈，逐页对照 LVGL C 源码与 token），六场景/首页筛选与 vg_model 语义一致；真实模式经 MQTT WebSocket 连 ws://107.174.123.74:9001，点击 AI 诊断由模型构建 context（event/history≤50/rules≤20/device）发真实请求，processing/终态实时渲染（mimo OK、fallback 降级、error 重试），60s watchdog 与断连恢复；工具栏含场景切换/模式切换/连接面板/流量日志；16:9 单屏无页面滚动；board-core.js 纯逻辑双用并新增契约测试（payload_hash 双工具参数化），168 测试全绿；trellis-check 修复 watchdog 死代码与 mock 取消挂起；真实 E2E 多次验证 source=mimo。任务已归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8a01dca` | (see git log) |
+| `9e6b032` | (see git log) |
+| `bd8df09` | (see git log) |
+
+### Status
+
+[OK] **Completed**
