@@ -11,6 +11,7 @@ from ai_bridge.configuration.settings import Settings, load_settings
 from ai_bridge.observability.logging import configure_logging, get_logger
 from ai_bridge.persistence.idempotency import InMemoryIdempotencyStore
 from ai_bridge.providers.base import build_provider
+from ai_bridge.runtime.fallback import build_fallback_diagnosis
 from ai_bridge.transport.mqtt.client import MqttBridgeClient, run_until_stopped
 
 logger = get_logger(__name__)
@@ -37,6 +38,8 @@ def build_runtime(settings: Settings) -> tuple[MqttBridgeClient, HandleAiRequest
         provider=provider,
         publish=client.publish_json,
         request_timeout_ms=settings.request_timeout_ms,
+        fallback_builder=build_fallback_diagnosis,
+        fallback_enabled=settings.fallback_enabled,
     )
     client.set_message_handler(use_case.handle_message)
     return client, use_case

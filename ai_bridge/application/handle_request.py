@@ -47,6 +47,8 @@ class HandleAiRequest:
         request_timeout_ms: int,
         now_ms: NowMsFn | None = None,
         publish_processing: bool = True,
+        fallback_builder: Callable[[AiRequest, str], dict[str, Any]] | None = None,
+        fallback_enabled: bool = True,
     ) -> None:
         self._store = store
         self._provider = provider
@@ -54,6 +56,8 @@ class HandleAiRequest:
         self._request_timeout_ms = request_timeout_ms
         self._now_ms = now_ms or _now_ms
         self._publish_processing = publish_processing
+        self._fallback_builder = fallback_builder
+        self._fallback_enabled = fallback_enabled
 
     def handle_message(self, topic: str, payload: bytes) -> None:
         received_ts_ms = self._now_ms()
@@ -215,6 +219,59 @@ class HandleAiRequest:
             return
 
         if isinstance(result, ProviderFailure):
+            if (
+                result.code == "provider_error"
+                and result.fallback_eligible
+                and self._fallback_enabled
+                and self._fallback_builder is not None
+                and self._remaining_deadline_s(received_ts_ms) > 0
+            ):
+                try:
+                    fallback_result = self._fallback_builder(
+                        request, result.message
+                    )
+                except Exception:
+                    logger.exception(
+                        "fallback_builder_failed device_id=%s req_id=%s",
+                        request.device_id,
+                        request.req_id,
+                    )
+                    self._finish_error(
+                        request,
+                        received_ts_ms=received_ts_ms,
+                        error_code=ErrorCode.INTERNAL_ERROR,
+                        error_message="unexpected bridge failure",
+                    )
+                    return
+                if not isinstance(fallback_result, dict):
+                    self._finish_error(
+                        request,
+                        received_ts_ms=received_ts_ms,
+                        error_code=ErrorCode.INTERNAL_ERROR,
+                        error_message="unexpected bridge failure",
+                    )
+                    return
+                response = build_response(
+                    req_id=request.req_id,
+                    device_id=request.device_id,
+                    type_=request.type,
+                    status=ResponseStatus.SUCCESS,
+                    result=fallback_result,
+                    received_ts_ms=received_ts_ms,
+                    bridge_ts_ms=self._now_ms(),
+                )
+                payload = response_to_dict(response)
+                self._store.complete(request.req_id, request.payload_hash, payload)
+                self._emit(response)
+                logger.warning(
+                    "fallback_used device_id=%s req_id=%s reason=%s elapsed_ms=%s",
+                    request.device_id,
+                    request.req_id,
+                    result.message,
+                    self._now_ms() - received_ts_ms,
+                )
+                return
+
             code = (
                 ErrorCode.TIMEOUT
                 if result.code == "timeout"

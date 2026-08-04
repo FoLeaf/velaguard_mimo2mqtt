@@ -36,6 +36,13 @@ class StubProvider:
         return ProviderSuccess(
             result={
                 "diagnosis_summary": "stub: no live MiMo call",
+                "risk_level": "low",
+                "possible_causes": [],
+                "recommended_actions": [
+                    "Retry with PROVIDER=mimo for live diagnosis"
+                ],
+                "need_shutdown": False,
+                "confidence": 0.0,
                 "source": "stub",
                 "advisory_only": True,
             }

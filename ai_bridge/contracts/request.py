@@ -138,6 +138,14 @@ def parse_request(
             type_=type_,
         )
 
+    if "context" in data and not isinstance(data["context"], dict):
+        raise RequestValidationError(
+            "context must be an object",
+            req_id=req_id,
+            device_id=device_id,
+            type_=type_,
+        )
+
     return AiRequest(
         req_id=req_id,
         device_id=device_id,

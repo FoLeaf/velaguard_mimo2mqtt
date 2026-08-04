@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from ai_bridge.contracts.request import AiRequest
@@ -20,6 +21,9 @@ class ProviderSuccess:
 class ProviderFailure:
     code: str
     message: str
+    # Additive: default False keeps existing call sites (and timeout/schema
+    # invalid failures) non-fallbackable.
+    fallback_eligible: bool = False
 
 
 ProviderResult = ProviderSuccess | ProviderFailure
@@ -52,6 +56,11 @@ def build_provider(
     if normalized == "mimo":
         from ai_bridge.configuration.settings import load_settings
         from ai_bridge.providers.mimo import MiMoProvider
+        from ai_bridge.runtime.prompt_builder import (
+            build_diagnosis_system_prompt,
+            build_diagnosis_user_content,
+        )
+        from ai_bridge.runtime.skill_manager import SkillManager
 
         config = settings if settings is not None else load_settings()
         if not config.mimo_api_key:
@@ -59,6 +68,13 @@ def build_provider(
                 "PROVIDER=mimo requires MIMO_API_KEY to be set "
                 "(inject via server env; never commit the key)"
             )
+        package_skills_dir = Path(__file__).resolve().parents[1] / "skills"
+        skills_dir = (
+            Path(config.skills_dir).resolve()
+            if config.skills_dir
+            else package_skills_dir
+        )
+        skill_text = SkillManager(skills_dir).load(config.diagnosis_skill)
         return MiMoProvider(
             base_url=config.mimo_base_url,
             model=config.mimo_model,
@@ -66,5 +82,7 @@ def build_provider(
             http_timeout_ms=config.mimo_http_timeout_ms,
             max_retries=config.mimo_max_retries,
             retry_backoff_ms=config.mimo_retry_backoff_ms,
+            system_prompt=build_diagnosis_system_prompt(skill_text),
+            user_content_builder=build_diagnosis_user_content,
         )
     raise ValueError(f"unknown provider: {name}")

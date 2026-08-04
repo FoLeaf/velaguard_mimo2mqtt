@@ -27,6 +27,9 @@ ai-bridge = "ai_bridge.__main__:main"
 [tool.setuptools.packages.find]
 include = ["ai_bridge*"]
 
+[tool.setuptools.package-data]
+"ai_bridge" = ["skills/*.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

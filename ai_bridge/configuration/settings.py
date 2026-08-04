@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+_SKILL_NAME_RE = re.compile(r"^[a-z0-9_]+$")
 
 
 class Settings(BaseSettings):
@@ -27,6 +31,14 @@ class Settings(BaseSettings):
     provider: Literal["stub", "mimo"] = Field(default="stub", alias="PROVIDER")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     stub_delay_ms: int = Field(default=0, alias="STUB_DELAY_MS")
+
+    # Diagnosis skill / prompt runtime settings.
+    skills_dir: str | None = Field(default=None, alias="SKILLS_DIR")
+    diagnosis_skill: str = Field(
+        default="industrial_fault_diagnosis",
+        alias="DIAGNOSIS_SKILL",
+    )
+    fallback_enabled: bool = Field(default=True, alias="FALLBACK_ENABLED")
 
     # MiMo HTTPS provider settings (OpenAI-compatible chat completions).
     mimo_base_url: str = Field(
@@ -59,6 +71,14 @@ class Settings(BaseSettings):
         if value < 0:
             raise ValueError("STUB_DELAY_MS must be non-negative")
         return value
+
+    @field_validator("diagnosis_skill")
+    @classmethod
+    def _diagnosis_skill_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or not _SKILL_NAME_RE.fullmatch(normalized):
+            raise ValueError("DIAGNOSIS_SKILL must match ^[a-z0-9_]+$")
+        return normalized
 
     @field_validator("mimo_base_url")
     @classmethod

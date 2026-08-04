@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import random
 import time
+from collections.abc import Callable
 from typing import Any
 
 import requests
@@ -24,17 +25,13 @@ from ai_bridge.contracts.request import AiRequest
 from ai_bridge.observability.logging import get_logger
 from ai_bridge.providers.base import ProviderFailure, ProviderResult, ProviderSuccess
 from ai_bridge.providers.schema import SchemaValidationError, validate_diagnosis_result
+from ai_bridge.runtime.skill_manager import DEFAULT_DIAGNOSIS_SKILL
 
 logger = get_logger(__name__)
 
-DIAGNOSIS_SYSTEM_PROMPT = (
-    "You are a VelaGuard industrial diagnosis assistant. Analyze the device "
-    "request and return ONLY a single JSON object matching exactly this schema: "
-    '{"diagnosis_summary": string (required, non-empty), '
-    '"reasons": [string], "recommendations": [string], '
-    '"confidence": number between 0 and 1}. '
-    "Do not include any text outside the JSON object."
-)
+# Backward-compatible constant: when no Skill is injected, the built-in v2
+# diagnosis prompt is used (single source of truth in runtime.skill_manager).
+DIAGNOSIS_SYSTEM_PROMPT = DEFAULT_DIAGNOSIS_SKILL
 
 _USER_CONTENT_MAX_CHARS = 2048
 
@@ -61,6 +58,7 @@ class MiMoProvider:
         max_retries: int = 2,
         retry_backoff_ms: int = 500,
         system_prompt: str = DIAGNOSIS_SYSTEM_PROMPT,
+        user_content_builder: Callable[[AiRequest], str] | None = None,
         session: requests.Session | None = None,
     ) -> None:
         if not api_key:
@@ -72,6 +70,7 @@ class MiMoProvider:
         self._max_retries = max(0, int(max_retries))
         self._retry_backoff_ms = max(0, int(retry_backoff_ms))
         self._system_prompt = system_prompt
+        self._user_content_builder = user_content_builder
         self._session = session if session is not None else requests.Session()
 
     # -- Provider protocol ---------------------------------------------------
@@ -131,6 +130,7 @@ class MiMoProvider:
                 return ProviderFailure(
                     code="provider_error",
                     message=f"mimo provider error (HTTP {status})",
+                    fallback_eligible=True,
                 )
 
             if status == 429 or status >= 500:
@@ -165,6 +165,7 @@ class MiMoProvider:
                 return ProviderFailure(
                     code="provider_error",
                     message=f"mimo provider error (HTTP {status})",
+                    fallback_eligible=True,
                 )
 
             try:
@@ -172,7 +173,7 @@ class MiMoProvider:
                 data = json.loads(content) if isinstance(content, str) else content
                 result = validate_diagnosis_result(data)
             except (SchemaValidationError, json.JSONDecodeError, ValueError) as exc:
-                # Provider output failed the v1 schema; never success, never retried.
+                # Provider output failed the v2 schema; never success, never retried.
                 logger.warning(
                     "mimo_attempt device_id=%s req_id=%s attempt=%s "
                     "outcome=schema_invalid elapsed_ms=%s",
@@ -185,6 +186,8 @@ class MiMoProvider:
                 return ProviderFailure(
                     code="provider_error",
                     message="provider output failed schema validation",
+                    # Schema-invalid output never enters fallback.
+                    fallback_eligible=False,
                 )
 
             result["source"] = "mimo"
@@ -202,12 +205,19 @@ class MiMoProvider:
         # ordinary exhausted-transient failure.
         if self._remaining_ms(deadline_s, started) <= 0:
             return ProviderFailure(code="timeout", message="request deadline exceeded")
-        return ProviderFailure(code="provider_error", message=last_error)
+        return ProviderFailure(
+            code="provider_error",
+            message=last_error,
+            fallback_eligible=True,
+        )
 
     # -- request building ----------------------------------------------------
 
     def _build_messages(self, request: AiRequest) -> list[dict[str, str]]:
-        user_content = self._safe_user_content(request)
+        if self._user_content_builder is not None:
+            user_content = self._user_content_builder(request)
+        else:
+            user_content = self._safe_user_content(request)
         return [
             {"role": "system", "content": self._system_prompt},
             {"role": "user", "content": user_content},
