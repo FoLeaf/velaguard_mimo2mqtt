@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VelaGuard 板端请求调试台</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="vendor/mqtt.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <header class="topbar">
+    <div class="topbar-main">
+      <h1>VelaGuard 板端请求调试台</h1>
+      <p class="subtitle">模拟板端诊断请求：真实模式走 MQTT WebSocket 直连 AI Bridge，Mock 模式完全离线演示</p>
+    </div>
+    <div class="topbar-badges">
+      <span id="mode-badge" class="badge badge-info">真实模式</span>
+      <span id="conn-badge" class="badge badge-ghost">未连接</span>
+    </div>
+  </header>
+
+  <main id="main" class="layout">
+    <section id="editor-panel" class="panel" aria-labelledby="editor-title">
+      <div class="panel-head">
+        <h2 id="editor-title">请求编辑器</h2>
+      </div>
+      <div class="panel-scroll">
+        <fieldset class="group">
+          <legend>运行模式</legend>
+          <div class="mode-toggle mode-toggle-lg" role="group" aria-label="运行模式">
+            <button class="mode-btn is-active" type="button" data-mode-select="real">真实 MQTT</button>
+            <button class="mode-btn" type="button" data-mode-select="mock">Mock 离线</button>
+          </div>
+          <p id="mode-hint" class="hint">
+            真实模式默认连接 dev broker（WebSocket 9001），由真实 AI Bridge 处理；连接失败时可一键切换 Mock 继续演示。
+          </p>
+        </fieldset>
+
+        <fieldset id="conn-panel" class="group">
+          <legend>MQTT 连接</legend>
+          <div class="grid-2">
+            <label class="field field-wide">
+              <span>Broker WebSocket URL</span>
+              <input id="f-broker-url" type="text" autocomplete="off" spellcheck="false" value="ws://107.174.123.74:9001">
+            </label>
+            <label class="field">
+              <span>client_id</span>
+              <input id="f-client-id" type="text" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="field">
+              <span>用户名（可选）</span>
+              <input id="f-mqtt-user" type="text" autocomplete="username" spellcheck="false">
+            </label>
+            <label class="field field-wide">
+              <span>密码（可选）</span>
+              <input id="f-mqtt-pass" type="password" autocomplete="current-password" spellcheck="false">
+            </label>
+          </div>
+          <div class="send-row">
+            <button id="btn-connect" class="btn btn-primary" type="button">连接</button>
+            <button id="btn-disconnect" class="btn btn-ghost" type="button">断开</button>
+            <span id="conn-status" class="badge badge-ghost" role="status">未连接</span>
+            <span id="conn-message" class="status-message" role="status" aria-live="polite"></span>
+          </div>
+          <p class="hint">
+            发送时先订阅 vg/{device_id}/ai/response/{req_id}（QoS 1）再发布请求；重复 req_id 会触发桥接真实的幂等/conflict 行为。
+          </p>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>基础字段</legend>
+          <div class="grid-2">
+            <label class="field">
+              <span>device_id</span>
+              <input id="f-device-id" type="text" autocomplete="off" spellcheck="false" value="dev01">
+            </label>
+            <label class="field">
+              <span>req_id（默认 UUID）</span>
+              <span class="input-with-btn">
+                <input id="f-req-id" type="text" autocomplete="off" spellcheck="false">
+                <button id="btn-regen-req-id" class="btn btn-ghost" type="button" title="重新生成 UUID">↻</button>
+              </span>
+            </label>
+            <label class="field">
+              <span>created_ts_ms（Unix 毫秒）</span>
+              <span class="input-with-btn">
+                <input id="f-created-ts" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
+                <button id="btn-now-ts" class="btn btn-ghost" type="button" title="设为当前时间">现在</button>
+              </span>
+            </label>
+            <label class="field">
+              <span>type</span>
+              <input id="f-type" type="text" readonly value="diagnosis">
+            </label>
+            <label class="field field-wide">
+              <span>payload_hash（自动计算，只读）</span>
+              <span class="input-with-btn">
+                <input id="f-payload-hash" type="text" readonly spellcheck="false" placeholder="等待计算…">
+                <button id="btn-refresh-hash" class="btn btn-ghost" type="button" title="重新计算 hash">↻</button>
+                <button id="btn-copy-hash" class="btn btn-ghost" type="button" title="复制 hash">复制</button>
+              </span>
+              <span class="hint">哈希算法与 synthetic_publisher.build_request 一致；请求体固定携带 note 字段以便直接对比</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>上下文 context（可选）</legend>
+          <div class="preset-row">
+            <span class="preset-label">载入预设：</span>
+            <button class="btn btn-ghost" type="button" data-preset="temp">温度超限</button>
+            <button class="btn btn-ghost" type="button" data-preset="humidity">湿度偏低</button>
+            <button class="btn btn-ghost" type="button" data-preset="empty">空上下文</button>
+          </div>
+
+          <section class="context-section" data-section="event">
+            <div class="context-head">
+              <h3>event（对象）</h3>
+              <div class="mode-toggle" role="group" aria-label="event 编辑模式">
+                <button class="mode-btn is-active" type="button" data-mode="form">表单</button>
+                <button class="mode-btn" type="button" data-mode="json">JSON</button>
+              </div>
+            </div>
+            <div class="mode-form">
+              <div class="grid-2">
+                <label class="field"><span>event_id</span><input data-key="event_id" type="text" autocomplete="off"></label>
+                <label class="field">
+                  <span>severity</span>
+                  <select data-key="severity">
+                    <option value="">（未设置）</option>
+                    <option value="critical">critical</option>
+                    <option value="error">error</option>
+                    <option value="warning">warning</option>
+                    <option value="info">info</option>
+                  </select>
+                </label>
+                <label class="field field-wide"><span>title</span><input data-key="title" type="text" autocomplete="off"></label>
+                <label class="field"><span>current_value</span><input data-key="current_value" type="text" inputmode="decimal" autocomplete="off"></label>
+                <label class="field"><span>ts_ms</span><input data-key="ts_ms" type="text" inputmode="numeric" autocomplete="off"></label>
+              </div>
+              <p class="field-error" hidden></p>
+            </div>
+            <div class="mode-json" hidden>
+              <textarea class="json-editor" rows="7" spellcheck="false" placeholder="{ &quot;event_id&quot;: &quot;evt_1&quot;, &quot;severity&quot;: &quot;warning&quot; }"></textarea>
+              <p class="field-error" hidden></p>
+            </div>
+          </section>
+
+          <section class="context-section" data-section="history">
+            <div class="context-head">
+              <h3>history（数组，最多 50 条）</h3>
+              <div class="mode-toggle" role="group" aria-label="history 编辑模式">
+                <button class="mode-btn is-active" type="button" data-mode="form">表单</button>
+                <button class="mode-btn" type="button" data-mode="json">JSON</button>
+              </div>
+            </div>
+            <div class="mode-form">
+              <div class="rows" data-rows></div>
+              <button class="btn btn-ghost" type="button" data-add-row>＋ 添加条目</button>
+              <p class="field-error" hidden></p>
+            </div>
+            <div class="mode-json" hidden>
+              <textarea class="json-editor" rows="7" spellcheck="false" placeholder="[ { &quot;ts_ms&quot;: 1782450000000, &quot;values&quot;: { &quot;temperature&quot;: 82.4 } } ]"></textarea>
+              <p class="field-error" hidden></p>
+            </div>
+          </section>
+
+          <section class="context-section" data-section="rules">
+            <div class="context-head">
+              <h3>rules（数组，最多 20 条）</h3>
+              <div class="mode-toggle" role="group" aria-label="rules 编辑模式">
+                <button class="mode-btn is-active" type="button" data-mode="form">表单</button>
+                <button class="mode-btn" type="button" data-mode="json">JSON</button>
+              </div>
+            </div>
+            <div class="mode-form">
+              <div class="rows" data-rows></div>
+              <button class="btn btn-ghost" type="button" data-add-row>＋ 添加条目</button>
+              <p class="field-error" hidden></p>
+            </div>
+            <div class="mode-json" hidden>
+              <textarea class="json-editor" rows="7" spellcheck="false" placeholder="[ { &quot;rule_id&quot;: &quot;r1&quot;, &quot;expr&quot;: &quot;temperature &gt; 70&quot; } ]"></textarea>
+              <p class="field-error" hidden></p>
+            </div>
+          </section>
+
+          <section class="context-section" data-section="device">
+            <div class="context-head">
+              <h3>device（对象）</h3>
+              <div class="mode-toggle" role="group" aria-label="device 编辑模式">
+                <button class="mode-btn is-active" type="button" data-mode="form">表单</button>
+                <button class="mode-btn" type="button" data-mode="json">JSON</button>
+              </div>
+            </div>
+            <div class="mode-form">
+              <div class="grid-2">
+                <label class="field"><span>name</span><input data-key="name" type="text" autocomplete="off"></label>
+                <label class="field"><span>model</span><input data-key="model" type="text" autocomplete="off"></label>
+                <label class="field field-wide"><span>description</span><input data-key="description" type="text" autocomplete="off"></label>
+              </div>
+              <p class="field-error" hidden></p>
+            </div>
+            <div class="mode-json" hidden>
+              <textarea class="json-editor" rows="7" spellcheck="false" placeholder="{ &quot;name&quot;: &quot;Motor Temp&quot;, &quot;model&quot;: &quot;RS485-TH-1&quot; }"></textarea>
+              <p class="field-error" hidden></p>
+            </div>
+          </section>
+        </fieldset>
+
+        <fieldset id="mock-controls" class="group">
+          <legend>Mock 场景（仅 Mock 模式）</legend>
+          <div class="grid-2">
+            <label class="field field-wide">
+              <span>场景</span>
+              <select id="f-scenario"></select>
+              <span id="scenario-desc" class="hint"></span>
+            </label>
+            <label class="field">
+              <span>模拟耗时（ms）</span>
+              <input id="f-delay" type="number" min="0" max="60000" step="100" value="800">
+            </label>
+          </div>
+        </fieldset>
+      </div>
+
+      <div class="send-bar">
+        <div class="send-row">
+          <button id="btn-send" class="btn btn-primary" type="button">发送请求</button>
+          <span id="sending-indicator" class="sending" hidden>
+            <span class="pulse-dot" aria-hidden="true"></span>
+            <span id="sending-text">模拟中，请稍候…</span>
+          </span>
+          <span id="status-message" class="status-message" role="status" aria-live="polite"></span>
+        </div>
+        <div class="preview">
+          <div class="preview-head">
+            <h3>请求预览</h3>
+            <button id="btn-export" class="btn btn-ghost" type="button">导出请求 JSON</button>
+          </div>
+          <pre id="request-preview" class="json-view">等待输入…</pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="response-panel" class="panel" aria-labelledby="response-title">
+      <div class="panel-head">
+        <h2 id="response-title">响应查看器</h2>
+        <button id="btn-copy-response" class="btn btn-ghost" type="button">复制完整 JSON</button>
+      </div>
+      <div id="response-viewer" class="right-section">
+        <div class="panel-scroll">
+          <div id="response-empty" class="empty-note">
+            尚未发送请求。点击「发送请求」后，这里会依次显示 processing 与终态响应。
+          </div>
+
+          <div id="response-body" hidden>
+            <dl class="envelope">
+              <div><dt>req_id</dt><dd id="r-req-id" class="mono"></dd></div>
+              <div><dt>device_id</dt><dd id="r-device-id" class="mono"></dd></div>
+              <div><dt>type</dt><dd id="r-type" class="mono"></dd></div>
+              <div><dt>status</dt><dd><span id="r-status" class="badge"></span></dd></div>
+              <div><dt>error_code</dt><dd id="r-error-code" class="mono"></dd></div>
+              <div><dt>error_message</dt><dd id="r-error-message" class="mono"></dd></div>
+              <div><dt>received_ts_ms</dt><dd id="r-received-ts" class="mono"></dd></div>
+              <div><dt>bridge_ts_ms</dt><dd id="r-bridge-ts" class="mono"></dd></div>
+            </dl>
+
+            <div class="result-box">
+              <div class="result-head">
+                <h3>result</h3>
+                <div class="mode-toggle" role="group" aria-label="result 视图">
+                  <button class="mode-btn is-active" type="button" data-view="tree">树</button>
+                  <button class="mode-btn" type="button" data-view="json">JSON</button>
+                </div>
+              </div>
+              <div id="result-tree" class="tree-view"></div>
+              <pre id="result-json" class="json-view" hidden></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="timeline-section" class="right-section">
+        <h3 class="section-title">时间线</h3>
+        <div class="panel-scroll">
+          <ol id="timeline" class="timeline">
+            <li class="empty-item">暂无事件</li>
+          </ol>
+        </div>
+      </div>
+
+      <div id="history-section" class="right-section">
+        <div class="panel-head">
+          <h3 id="history-title">请求历史</h3>
+          <div class="history-actions">
+            <label class="btn btn-ghost file-btn" for="f-import">
+              导入请求 JSON
+              <input id="f-import" type="file" accept=".json,application/json" hidden>
+            </label>
+            <button id="btn-clear-history" class="btn btn-ghost" type="button">清空历史</button>
+          </div>
+        </div>
+        <div class="panel-scroll">
+          <ol id="history-list" class="history-list">
+            <li class="empty-item">暂无请求记录</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>
+      本页面为开发调试工具：真实模式通过 MQTT over WebSocket 连接 dev broker（默认 ws://107.174.123.74:9001，匿名明文，仅限开发）；Mock 模式完全离线。mqtt.js 已本地 vendored，无需 CDN。
+    </p>
+  </footer>
+</body>
+</html>
