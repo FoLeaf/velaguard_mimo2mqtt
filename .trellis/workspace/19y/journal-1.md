@@ -73,3 +73,27 @@ Added MiMoProvider (OpenAI-compatible chat completions) behind the Provider seam
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: AI 诊断 Skill 与 fallback 闭环
+
+**Date**: 2026-08-04
+**Task**: AI 诊断 Skill 与 fallback 闭环
+**Branch**: `main`
+
+### Summary
+
+实现云端诊断闭环：Agent Runtime（skill_manager/prompt_builder/json_validator/fallback）+ industrial_fault_diagnosis Skill + v2 结果 schema；fallback 语义为 status=success + source=fallback + advisory_only（用户确认），timeout/schema 非法不进 fallback。156 单测/契约通过，ruff+mypy 干净；检查代理修复 confidence 大整数溢出、user 消息 8192 上限兜底等。已部署到 107.174.123.74:42387（/opt/velaguard-ai-bridge，旧版已备份），实机验证 live MiMo v2 成功 + fallback 降级成功，服务已恢复。任务已归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `824002e` | (see git log) |
+| `4a5abf3` | (see git log) |
+| `6a681a4` | (see git log) |
+| `967083a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
