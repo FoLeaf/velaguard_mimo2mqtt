@@ -1,14 +1,11 @@
-"""Contract parity between the debug console / board simulator and Python canonical JSON.
+"""Contract parity between the unified board simulator debug panel and Python canonical JSON.
 
-PRD AC2 requires ``debug-console/app.js`` to reproduce the bridge's
+The unified page requires ``board-sim/board-core.js`` to reproduce the bridge's
 ``payload_hash`` algorithm byte-for-byte:
 
     sha256(json.dumps(body, sort_keys=True, separators=(",", ":")))
 
-``board-sim/board-core.js`` carries the same canonical helpers (copied with
-attribution so the simulator stays fully independent); these tests execute
-both browser modules under node.js and compare them with the Python
-reference. They skip when node.js is not installed; the developer tooling is
+``board-sim/board-core.js`` is the single canonical helper implementation; this test executes it under Node.js and compares it with the Python reference. Debug Mock behavior is covered by its own scenario contract test. They skip when node.js is not installed; the developer tooling is
 not a Python runtime dependency.
 """
 
@@ -28,13 +25,12 @@ from ai_bridge.cli.synthetic_publisher import build_request
 NODE = shutil.which("node")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 JS_MODULES = [
-    pytest.param(_REPO_ROOT / "debug-console" / "app.js", id="debug-console"),
-    pytest.param(_REPO_ROOT / "board-sim" / "board-core.js", id="board-sim"),
+    pytest.param(_REPO_ROOT / "board-sim" / "board-core.js", id="board-core"),
 ]
 
 requires_node = pytest.mark.skipif(
     NODE is None,
-    reason="node.js is required to execute the debug-console hash parity check",
+    reason="node.js is required to execute the unified page hash parity check",
 )
 
 _NODE_SCRIPT = textwrap.dedent(

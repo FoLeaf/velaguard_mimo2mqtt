@@ -183,7 +183,7 @@ button:disabled {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.62fr);
+  grid-template-columns: minmax(0, 1fr) minmax(620px, 0.9fr);
   gap: 12px;
   min-height: 0;
   padding: 12px 16px;

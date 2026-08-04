@@ -8,6 +8,8 @@ VelaGuard -> MQTT Broker -> AI Bridge -> HTTPS providers (MiMo)
 
 This first slice proves one end-to-end MQTT AI request/response loop with a pluggable provider (default **stub**, no live MiMo credentials required). A real OpenAI-compatible **MiMo** HTTPS provider is included behind the same seam and is opt-in via `PROVIDER=mimo`. `type=diagnosis` requests carry an optional structured `context` object (event, history, rules, device description) that the bridge normalizes into a bounded prompt, and provider failures fall back to a schema-valid degraded result instead of a bare error.
 
+For the current MQTT request/response contract, field rules, error codes, idempotency behavior, runtime configuration, and MiMo upstream details, see [docs/backend-api.md](docs/backend-api.md).
+
 ## Features
 
 - Independent MQTT client (paho-mqtt)
@@ -148,48 +150,47 @@ python -m ai_bridge.cli.synthetic_publisher --device-id dev01
 python -m ai_bridge.cli.synthetic_publisher --help
 ```
 
-## Debug console
+## Unified board simulator and debug console
 
-`debug-console/index.html` is a single-screen developer console that simulates a VelaGuard board sending `type=diagnosis` AI requests. It has two modes:
+The two developer pages are now combined into one static page:
 
-- **Real mode (default)** connects over MQTT WebSocket to the dev broker, publishes the request to `vg/{device_id}/ai/request`, subscribes to `vg/{device_id}/ai/response/{req_id}`, and renders the bridge's real `processing` / terminal responses in real time.
-- **Mock mode** runs fully offline: responses come from a built-in mock engine with six contract scenarios, so the page also works over `file://` with zero network access.
+`board-sim/index.html` is the canonical entry point. It keeps the faithful 480x272 VelaGuard board HMI as the main workspace and exposes the full request debug console in an expandable right-side drawer. The board controls, request editor, MQTT connection, Mock engine, response viewer, timeline, history, and traffic log share one browser runtime and one MQTT client.
 
 Open it directly:
 
-- Double-click `debug-console/index.html`, or
-- run `start debug-console/index.html` on Windows.
+- Double-click `board-sim/index.html`, or
+- run `start board-sim/index.html` on Windows.
 
-No build step, no npm, and no CDN: mqtt.js is vendored under `debug-console/vendor/mqtt.min.js` (MIT).
+The old `debug-console/index.html` path is retained as a lightweight compatibility page that redirects to the unified entry point. It no longer loads a second debug application.
 
-### Real mode
+No build step, no npm, and no CDN are required. The only runtime mqtt.js copy is vendored under `board-sim/vendor/mqtt.min.js` (MIT).
 
-- Default broker URL: `ws://107.174.123.74:9001` (dev Mosquitto WebSocket listener, plaintext anonymous). Change it in the connection panel; a `client_id` is generated automatically and can be overridden, and optional username/password fields are available.
-- The dev broker config lives in `deploy/dev/mosquitto/mosquitto.conf` (`listener 9001` + `protocol websockets`) and is exposed by `deploy/dev/docker-compose.yml`. After pulling this change onto the server, restart the dev broker (e.g. `docker compose -f deploy/dev/docker-compose.yml up -d --force-recreate mosquitto`) and confirm the AI Bridge reconnects; port 1883 behavior is unchanged.
-- On send, the page subscribes `vg/{device_id}/ai/response/{req_id}` (QoS 1) first, then publishes the request to `vg/{device_id}/ai/request` (QoS 1, not retained). `payload_hash` is computed in the browser with the same canonical form as the bridge.
-- Real bridge behavior is shown as-is: the normal path publishes `processing` then the terminal envelope; `validation_error` / `conflict` arrive directly without `processing`; reusing a `req_id` with a different `payload_hash` produces the real `conflict` response.
-- Connection or publish failures are reported inline; the page never crashes, and you can switch to Mock mode at any time to keep demonstrating.
+### Modes and connection
 
-**Security note.** The dev broker is anonymous plaintext, and its 9001 WebSocket port is publicly reachable on the dev server. This is the existing dev posture (same as 1883) and is **not** production-safe. Production must use MQTTS, per-device credentials/tokens, and Broker ACLs.
+- **Real mode (default).** Configure the broker WebSocket URL, client_id, optional username/password, and connect from the drawer. The page subscribes to `vg/{device_id}/ai/response/{req_id}` (QoS 1) before publishing to `vg/{device_id}/ai/request` (QoS 1, not retained). The bridge's processing and terminal envelopes are rendered in the same response viewer used by both board and debug requests.
+- **Mock mode.** Fully offline. The board model keeps its six HMI scenarios (正常/预警/严重/离线/AI不可用/OTA中), while the request editor keeps its six protocol scenarios (v2 MiMo success, fallback, provider_error, timeout, validation_error, and conflict). Both flows use the same request event stream and can be inspected in history and traffic.
+- Switching mode cancels incompatible pending requests. Connection, subscribe, publish, timeout, and invalid-response failures are shown inline without crashing the page.
 
-### Mock mode
+### Request editor and response viewer
 
-- Request editor for `req_id` (UUID by default), `device_id`, `created_ts_ms`, fixed `type=diagnosis`, and a read-only auto-computed `payload_hash` with a manual refresh button.
-- Context editor for `event`, `history`, `rules`, and `device`, each with a Chinese form mode or raw JSON mode, plus three presets (temperature over-limit, low humidity, empty context). Invalid JSON is reported inline and blocks sending.
-- Six mock scenarios: v2 MiMo success, fallback degradation, schema-invalid `provider_error`, overall `timeout`, `validation_error`, and idempotency `conflict`. The simulated delay is configurable per scenario.
-- Provider-path scenarios publish `processing` first, then the terminal response. `validation_error` and `conflict` are rejected before `processing`, matching the real bridge behavior.
-- Response viewer with envelope fields, result tree/JSON views, status/error badges, a copy button, a timeline with `received_ts_ms` / `bridge_ts_ms` and relative elapsed time, and request history (latest 50, with export/import of a single request JSON).
-- The layout is one 16:9 screen: request editing and send on the left, response / timeline / history on the right. Panels scroll internally; the page itself does not scroll.
+The drawer preserves the former debug-console capabilities:
+
+- Edit `device_id`, `req_id`, `created_ts_ms`, fixed `type=diagnosis`, and read-only `payload_hash`.
+- Edit `context.event`, `history`, `rules`, and `device` using form or JSON mode, with temperature, humidity, and empty-context presets. Invalid JSON blocks sending.
+- Preview and export request JSON, import a request, copy the hash or complete response, clear history, and inspect the latest 50 requests.
+- View response envelope fields, result tree/JSON, processing and terminal timeline events, and safe MQTT/Mock traffic. Passwords never enter the traffic log.
+
+The board's AI diagnosis action builds context from the current board model (active alarm, selected sensor history up to 50 points, threshold rules up to 20, and device description) and sends through the same service. Requests sent from the drawer can update the board diagnosis when their device_id matches the current board device, without forcing a page navigation.
 
 ### payload_hash parity
 
-The console computes the hash with the same algorithm as `ai_bridge.cli.synthetic_publisher.build_request`:
+The unified page computes the hash with the same algorithm as `ai_bridge.cli.synthetic_publisher.build_request`:
 
-```text
-sha256( json.dumps(body, sort_keys=True, separators=(",", ":")) )
-```
+`sha256(json.dumps(body, sort_keys=True, separators=(",", ":")))`
 
-The exported request includes the fixed `note: "synthetic publisher"` field, so the same body round-trips through `build_request`. To verify an exported file:
+The browser preserves the int/float distinction of JSON number tokens while hashing, so `1` and `1.0` remain different like Python. Values beyond the safe integer range may be rounded when displayed in the browser.
+
+To verify an exported request:
 
 ```python
 import json
@@ -201,78 +202,19 @@ built = build_request(device_id=body["device_id"], extra=body)
 assert built["payload_hash"] == exported["payload_hash"]
 ```
 
-Implementation note: JavaScript numbers are IEEE-754 doubles. The console preserves the int/float distinction of JSON number tokens while hashing (so `1` and `1.0` produce different hashes, like Python), but values beyond the safe integer range may be rounded when displayed in the browser.
-
-## Board simulator
-
-`board-sim/index.html` is a dependency-free web replica of the 480x272
-VelaGuard board HMI. It renders the board shell (status bar, navigation
-stack, toast) and the home / device / trend / alarm / diagnosis / logs pages
-faithfully from the LVGL sources under
-`D:/Study/Embeded/Velaguard/GUI/main/ui/`, and is wired to the real AI Bridge
-through the same MQTT-over-WebSocket channel as the debug console.
-
-Open it directly:
-
-- Double-click `board-sim/index.html`, or
-- run `start board-sim/index.html` on Windows.
-
-No build step, no npm, no CDN: mqtt.js is vendored under
-`board-sim/vendor/mqtt.min.js` (same version as `debug-console/vendor`).
-
-### Modes
-
-- **Real mode (default).** Clicking AI 诊断 auto-connects to the broker in
-  the connection panel (default `ws://107.174.123.74:9001`), builds a
-  structured `context` from the current board model (active alarm, selected
-  sensor history up to 50 points, threshold rules up to 20, device
-  description), subscribes `vg/{device_id}/ai/response/{req_id}` (QoS 1),
-  publishes `vg/{device_id}/ai/request` (QoS 1, not retained) with an
-  auto-computed `payload_hash`, and renders `processing` then the terminal
-  envelope. `success + source=mimo` shows the OK page, `success +
-  source=fallback` shows the OK page with a degradation hint, and `error`
-  shows the error code/message with a retry button. A 60 s local watchdog
-  cancels pending requests; disconnect, publish failures, and offline events
-  are shown inline and never crash the page. You can switch to Mock at any
-  time.
-- **Mock mode.** Fully offline. The six scenarios (正常/预警/严重/离线/
-  AI不可用/OTA中) mirror `vg_model.c`; mock diagnosis reproduces
-  `vg_model_request_diagnosis` (loading, then OK or immediate `MiMo 不可用`
-  error). Sensor values, trends, alarms, and logs are local model data in
-  both modes; only the AI diagnosis request/response is real in real mode.
-
 ### Board replica relationship
 
-The board frame is a page-for-page replica of the current
-`main/ui/` sources: shell layout (`vg_shell.c`), model semantics
-(`vg_model.c`, including fleet seeding, scenario changes, home filter and
-counts, alarm ack/mute, log rotation), theme tokens (`vg_theme.h` /
-`vg_display.h`: colors, 4px radius, 6px padding, 36x40px touch targets, 40px
-list rows), and page copy/behavior (`vg_page_*.c`). When the C UI changes,
-sync `board-sim/` accordingly. The current home page uses the filter bar +
-scrollable sensor list + alarm strip + action row (the tile-grid variant was
-an earlier iteration).
+The board frame remains a page-for-page replica of the current `main/ui/` sources: shell layout (`vg_shell.c`), model semantics (`vg_model.c`, including fleet seeding, scenario changes, home filters, alarm ack/mute, and log rotation), theme tokens, and page copy/behavior. When the C UI changes, sync `board-sim/` accordingly.
 
-### Contract fidelity
+### Contract and browser checks
 
-`board-sim/board-core.js` owns the canonical JSON + SHA-256 implementation
-for the simulator (copied with attribution from `debug-console/app.js` so
-each directory stays independent; keep the two copies in sync).
-`tests/contract/test_debug_console_hash_parity.py` checks both against
-Python, and `tests/contract/test_board_sim_core.py` checks the context
-shape, v2 result mapping, mock diagnosis outcomes, and a real built request.
-An automated headless smoke check is included:
-`python board-sim/e2e_smoke.py --real` (needs python-playwright and a local
-Chrome/Edge; `--real` also sends one live diagnosis and records
-req_id/status/source).
+- `tests/contract/test_debug_console_hash_parity.py` checks the unified protocol core against Python.
+- `tests/contract/test_board_sim_core.py` checks board context shape, v2 result mapping, Mock diagnosis outcomes, and real request construction.
+- `python board-sim/e2e_smoke.py` checks the unified entry over `file://`, board Mock flows, drawer layout, and 1366x768 / 1920x1080 page-level scrolling. Add `--real` to send one live diagnosis when the dev broker and bridge are available.
 
 ### Security note
 
-The default dev broker (`ws://107.174.123.74:9001`) is anonymous plaintext
-and publicly reachable; it is the existing dev posture and is **not**
-production-safe. Production must use MQTTS, per-device credentials/tokens,
-and Broker ACLs. A password entered in the browser stays in browser memory
-only: it is never echoed back, printed, or written into the traffic log.
+The default dev broker (`ws://107.174.123.74:9001`) is anonymous plaintext and publicly reachable; it is the existing dev posture and is **not** production-safe. Production must use MQTTS, per-device credentials/tokens, and Broker ACLs. A password entered in the browser stays in browser memory only: it is never echoed back, printed, or written into the traffic log.
 
 ## Tests
 

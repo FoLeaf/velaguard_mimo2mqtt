@@ -13,16 +13,15 @@
  * the AI Bridge request/response contract from .trellis/spec/backend/
  * mqtt-ai-bridge-contracts.md.
  *
- * Canonical JSON / SHA-256 parity: the helpers below are copied from
- * debug-console/app.js (same repository) so board-sim/ stays fully
- * independent while reproducing ai_bridge.cli.synthetic_publisher
- * byte-for-byte. Keep the two copies in sync; tests/contract/
- * test_debug_console_hash_parity.py checks both against Python.
+ * Canonical JSON / SHA-256 parity: this is the single browser and Node
+ * implementation used by the unified board and debug panel. It reproduces
+ * ai_bridge.cli.synthetic_publisher byte-for-byte; tests/contract/
+ * test_debug_console_hash_parity.py checks it against Python.
  * ===================================================================== */
 
 /* =====================================================================
  * Python-compatible canonical JSON and SHA-256 helpers.
- * (Copied verbatim from debug-console/app.js; see header note above.)
+ * This implementation is shared by the board UI and the unified debug panel.
  *
  * payload_hash must match ai_bridge.cli.synthetic_publisher.build_request:
  *   canonical = json.dumps(body, sort_keys=True, separators=(",", ":"))

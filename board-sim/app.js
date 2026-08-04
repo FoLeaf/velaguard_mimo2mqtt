@@ -708,11 +708,109 @@ function renderLogs(root) {
 }
 
 /* =====================================================================
- * Mock / real diagnosis flow.
+ * Unified request service diagnosis flow.
  * ===================================================================== */
 
 function getDeviceId() {
-  return $("f-device-id").value.trim() || "dev01";
+  const input = $("f-device-id");
+  return (input && input.value.trim()) || "dev01";
+}
+
+function pushTraffic(item) {
+  state.traffic.unshift(Object.assign({ ts: Date.now() }, item));
+  if (state.traffic.length > 24) {
+    state.traffic.length = 24;
+  }
+  const list = $("traffic-list");
+  if (!list) return;
+  list.textContent = "";
+  for (const entry of state.traffic) {
+    const li = el("li", "traffic-item");
+    const head = el("div", "traffic-head");
+    head.appendChild(el("span", "traffic-kind", entry.kind || "event"));
+    head.appendChild(el("span", "traffic-time", new Date(entry.ts).toLocaleTimeString()));
+    const topic = el("div", "traffic-topic mono", entry.topic || "");
+    const body = el("pre", "traffic-body");
+    body.textContent = JSON.stringify(entry.payload || {}, null, 2);
+    li.append(head, topic, body);
+    list.appendChild(li);
+  }
+}
+
+function clearTraffic() {
+  state.traffic = [];
+  const list = $("traffic-list");
+  if (list) list.textContent = "";
+}
+
+function applyEnvelopeToBoard(envelope, reqId, source) {
+  if (!envelope) return;
+  if (envelope.status === "processing") {
+    state.model.diagnosis.state = "loading";
+    renderPage();
+    return;
+  }
+  if (envelope.status === "success") {
+    const mapped = core.mapResultToDiagnosis(envelope.result);
+    if (mapped) {
+      core.applyResultToDiagnosis(state.model, mapped);
+      state.lastTerminal = { reqId, status: "success", source: mapped.source, error_code: null };
+    } else {
+      core.applyErrorToDiagnosis(state.model, { error_code: "provider_error", error_message: "响应缺少有效诊断结果" });
+      state.lastTerminal = { reqId, status: "error", source: null, error_code: "provider_error" };
+    }
+  } else if (envelope.status === "error") {
+    core.applyErrorToDiagnosis(state.model, envelope);
+    state.lastTerminal = { reqId, status: "error", source: null, error_code: envelope.error_code };
+  }
+  if (source === "board") {
+    toast(envelope.status === "success" ? "诊断完成" : "诊断失败: " + (envelope.error_code || "unknown"));
+  } else if (envelope.status === "success" && getDeviceId() === String(envelope.device_id || "")) {
+    toast("调试台诊断已同步到板端");
+  }
+  renderPage();
+}
+
+function handleUnifiedServiceEvent(detail) {
+  if (!detail) return;
+  if (detail.kind === "connection") {
+    state.mqtt.status = detail.status;
+    return;
+  }
+  if (detail.kind === "mode") {
+    if (detail.mode === "real" && state.mode === "mock") {
+      core.cancelMockDiagnosis(state.model);
+    }
+    state.mode = detail.mode;
+    renderPage();
+    return;
+  }
+  if (detail.kind === "traffic") {
+    const isOut = detail.direction === "out";
+    const isProcessing = detail.status === "processing";
+    pushTraffic({
+      kind: isOut ? (detail.mode === "mock" ? "diagnosis_req" : "mqtt_publish") : (isProcessing ? "mqtt_processing" : "diagnosis_terminal"),
+      topic: detail.topic,
+      payload: detail.payload,
+      reqId: detail.reqId,
+      status: detail.status,
+      source: detail.source,
+      errorCode: detail.errorCode,
+    });
+    return;
+  }
+  if (detail.kind === "response") {
+    if (detail.deviceId === getDeviceId() || detail.source === "board") {
+      applyEnvelopeToBoard(detail.envelope, detail.reqId, detail.source);
+    }
+    return;
+  }
+  if (detail.kind === "failure" && (detail.source === "board" || detail.deviceId === getDeviceId())) {
+    core.applyErrorToDiagnosis(state.model, { error_code: detail.errorCode || "send_failed", error_message: detail.message || "请求失败" });
+    state.lastTerminal = { reqId: detail.reqId || null, status: "error", source: null, error_code: detail.errorCode || "send_failed" };
+    toast(detail.message || "诊断失败");
+    renderPage();
+  }
 }
 
 function startDiagnosisIfIdle(force) {
@@ -720,328 +818,15 @@ function startDiagnosisIfIdle(force) {
   if (!force && d.state === "loading") {
     return;
   }
-  if (state.mode === "mock") {
-    runMockDiagnosisFlow();
-  } else {
-    runRealDiagnosisFlow();
-  }
+  runUnifiedDiagnosis();
 }
 
-async function runMockDiagnosisFlow() {
+async function runUnifiedDiagnosis() {
   const d = state.model.diagnosis;
   const reqId = core.newReqId();
+  state.lastTerminal = null;
   const deviceId = getDeviceId();
   const ctx = core.buildDiagnosisContext(state.model);
-  let built = null;
-  try {
-    built = await core.buildRequest({
-      req_id: reqId,
-      device_id: deviceId,
-      created_ts_ms: Date.now(),
-      context: ctx,
-    });
-  } catch (err) {
-    // ignore: mock mode only needs the record
-  }
-  pushTraffic({
-    kind: "diagnosis_req",
-    topic: "mock://" + deviceId + "/ai/request",
-    payload: built ? built.full : { req_id: reqId, device_id: deviceId, mode: "mock" },
-    reqId: reqId,
-    hash: built ? built.payload_hash : null,
-  });
-  const result = await core.runMockDiagnosis(state.model, state.model.scenario);
-  if (!result) {
-    return; // a diagnosis was already in flight
-  }
-  pushTraffic({
-    kind: "diagnosis_terminal",
-    topic: "mock://" + deviceId + "/ai/response/" + reqId,
-    payload: {
-      req_id: reqId,
-      status: result.state === "ok" ? "success" : "error",
-      source: result.state === "ok" ? "mock" : null,
-      error_code: result.state === "error" ? result.error_code : null,
-      summary: result.state === "ok" ? result.summary : null,
-    },
-    reqId: reqId,
-    status: result.state === "ok" ? "success" : "error",
-    source: result.state === "ok" ? "mock" : null,
-  });
-  renderPage();
-}
-
-function setConnStatus(status, message) {
-  const labelMap = {
-    disconnected: "未连接",
-    connecting: "连接中",
-    connected: "已连接",
-    error: "连接错误",
-  };
-  const classMap = {
-    disconnected: "badge-ghost",
-    connecting: "badge-info",
-    connected: "badge-success",
-    error: "badge-error",
-  };
-  const label = labelMap[status] || "未连接";
-  const cls = "badge " + (classMap[status] || "badge-ghost");
-  const badge = $("conn-badge");
-  badge.textContent = label;
-  badge.className = cls;
-  const statusEl = $("conn-status");
-  statusEl.textContent = label;
-  statusEl.className = cls;
-  const msgEl = $("conn-message");
-  msgEl.textContent = message || "";
-  msgEl.className =
-    "status-message" +
-    (status === "error" ? " is-error" : status === "connected" ? " is-success" : "");
-}
-
-function defaultClientId() {
-  let rand;
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    rand = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) =>
-      b.toString(16).padStart(2, "0")
-    ).join("");
-  } else {
-    rand = Math.random().toString(16).slice(2, 10);
-  }
-  return "vg-sim-" + rand;
-}
-
-function connectMqtt() {
-  if (state.mqtt.status === "connected" || state.mqtt.status === "connecting") {
-    return;
-  }
-  const url = $("f-broker-url").value.trim();
-  const clientId = $("f-client-id").value.trim();
-  const username = $("f-mqtt-user").value.trim();
-  const password = $("f-mqtt-pass").value;
-
-  if (typeof mqtt === "undefined") {
-    setConnStatus("error", "mqtt.js 未加载（检查 vendor/mqtt.min.js）");
-    toast("无法连接：mqtt.js 未加载");
-    return;
-  }
-  if (!/^wss?:\/\/[^/]+/.test(url)) {
-    setConnStatus("error", "Broker URL 必须是 ws:// 或 wss:// 地址");
-    toast("连接失败：Broker URL 无效");
-    return;
-  }
-
-  const client = mqtt.connect(url, {
-    clientId: clientId || defaultClientId(),
-    username: username || undefined,
-    password: password || undefined,
-    clean: true,
-    protocolVersion: 4,
-    reconnectPeriod: 0,
-    connectTimeout: core.MQTT_CONNECT_TIMEOUT_MS,
-  });
-  state.mqtt.client = client;
-  state.mqtt.status = "connecting";
-  setConnStatus("connecting", "正在连接 " + url + " ...");
-
-  state.connectPromise = new Promise((resolve, reject) => {
-    let settled = false;
-    const fail = (message) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      state.mqtt.status = "error";
-      setConnStatus("error", message);
-      reject(new Error(message));
-    };
-    const timeout = setTimeout(() => {
-      fail("连接超时（" + core.MQTT_CONNECT_TIMEOUT_MS + " ms）");
-    }, core.MQTT_CONNECT_TIMEOUT_MS + 1000);
-
-    client.on("connect", () => {
-      clearTimeout(timeout);
-      if (!settled) {
-        settled = true;
-        state.mqtt.status = "connected";
-        setConnStatus("connected", "已连接 " + url);
-        toast("MQTT 已连接");
-        resolve();
-      }
-    });
-    client.on("message", (topic, payload) => {
-      handleMqttMessage(topic, payload);
-    });
-    client.on("error", (err) => {
-      clearTimeout(timeout);
-      const message = err && err.message ? err.message : String(err);
-      state.mqtt.status = "error";
-      setConnStatus("error", "连接错误：" + message);
-      failPendingReal("连接错误，等待中的请求已取消：" + message);
-      fail("连接错误：" + message);
-    });
-    client.on("offline", () => {
-      if (state.mqtt.status !== "error") {
-        state.mqtt.status = "disconnected";
-        setConnStatus("disconnected", "已离线，请重试连接");
-        failPendingReal("已离线，等待中的请求已取消；请重新连接后重试");
-        fail("已离线，请重试连接");
-      }
-    });
-    client.on("close", () => {
-      if (state.mqtt.status === "connected" || state.mqtt.status === "connecting") {
-        state.mqtt.status = "disconnected";
-        setConnStatus("disconnected", "连接已断开");
-        failPendingReal("连接已断开，等待中的请求已取消；请重新连接后重试");
-        fail("连接已断开");
-      }
-    });
-  });
-}
-
-function disconnectMqtt() {
-  failPendingReal("连接已断开，等待中的请求已取消；请重新连接后重试");
-  const client = state.mqtt.client;
-  state.mqtt.client = null;
-  state.mqtt.status = "disconnected";
-  state.connectPromise = null;
-  setConnStatus("disconnected", "未连接");
-  if (client) {
-    try {
-      client.end(true);
-    } catch (err) {
-      // best effort
-    }
-  }
-}
-
-function ensureConnected() {
-  if (state.mqtt.status === "connected") {
-    return Promise.resolve();
-  }
-  if (state.mqtt.status === "connecting" && state.connectPromise) {
-    return state.connectPromise;
-  }
-  connectMqtt();
-  return state.connectPromise || Promise.reject(new Error("MQTT 未连接"));
-}
-
-function pushTraffic(item) {
-  state.traffic.unshift({
-    time: new Date(),
-    kind: item.kind,
-    topic: item.topic,
-    payload: item.payload,
-    reqId: item.reqId,
-    hash: item.hash,
-    status: item.status,
-    source: item.source,
-    errorCode: item.errorCode,
-    note: item.note,
-  });
-  if (state.traffic.length > 100) {
-    state.traffic.length = 100;
-  }
-  renderTraffic();
-}
-
-function renderTraffic() {
-  const list = $("traffic-list");
-  list.textContent = "";
-  if (state.traffic.length === 0) {
-    list.appendChild(el("div", "traffic-empty", "暂无消息"));
-    return;
-  }
-  for (const item of state.traffic) {
-    const li = el("li", "traffic-item");
-    const head = el("div", "");
-    head.appendChild(el("span", "traffic-time", formatTime(item.time.getTime()) + " "));
-    head.appendChild(el("span", "traffic-kind", "[" + item.kind + "] "));
-    head.appendChild(document.createTextNode(item.topic || ""));
-    if (item.status) {
-      head.appendChild(
-        document.createTextNode(" status=" + item.status + (item.source ? " source=" + item.source : ""))
-      );
-    }
-    li.appendChild(head);
-    if (item.note) {
-      li.appendChild(el("div", "", item.note));
-    }
-    if (item.payload !== undefined) {
-      const pre = el("pre", "");
-      try {
-        pre.textContent = JSON.stringify(item.payload, null, 2);
-      } catch (err) {
-        pre.textContent = String(item.payload);
-      }
-      li.appendChild(pre);
-    }
-    list.appendChild(li);
-  }
-}
-
-function clearTraffic() {
-  state.traffic = [];
-  renderTraffic();
-}
-
-function failPendingReal(message, silent) {
-  const d = state.model.diagnosis;
-  for (const [reqId, entry] of state.mqtt.pending) {
-    clearTimeout(entry.timer);
-    if (state.mqtt.client) {
-      try {
-        state.mqtt.client.unsubscribe(entry.responseTopic);
-      } catch (err) {
-        // best effort
-      }
-    }
-    pushTraffic({
-      kind: "diagnosis_terminal",
-      topic: entry.responseTopic,
-      payload: { req_id: reqId, status: "interrupted", note: message },
-      reqId: reqId,
-      status: "interrupted",
-    });
-  }
-  const hadPending = state.mqtt.pending.size > 0;
-  state.mqtt.pending.clear();
-  if (hadPending && d.state === "loading" && !silent) {
-    core.applyErrorToDiagnosis(state.model, {
-      error_code: "interrupted",
-      error_message: message,
-    });
-    toast(message);
-    renderPage();
-  }
-}
-
-async function runRealDiagnosisFlow() {
-  const d = state.model.diagnosis;
-  try {
-    await ensureConnected();
-  } catch (err) {
-    core.applyErrorToDiagnosis(state.model, {
-      error_code: "mqtt_connect",
-      error_message: "连接失败: " + (err.message || String(err)),
-    });
-    pushTraffic({
-      kind: "diagnosis_terminal",
-      topic: "",
-      payload: { status: "error", error_code: "mqtt_connect", error_message: err.message || String(err) },
-      status: "error",
-      errorCode: "mqtt_connect",
-    });
-    toast("连接失败，可切 Mock 继续演示");
-    renderPage();
-    return;
-  }
-
-  const reqId = core.newReqId();
-  const deviceId = getDeviceId();
-  const ctx = core.buildDiagnosisContext(state.model);
-  const requestTopic = "vg/" + deviceId + "/ai/request";
-  const responseTopic = "vg/" + deviceId + "/ai/response/" + reqId;
   let built;
   try {
     built = await core.buildRequest({
@@ -1049,196 +834,73 @@ async function runRealDiagnosisFlow() {
       device_id: deviceId,
       created_ts_ms: Date.now(),
       context: ctx,
+      note: "board simulator",
     });
   } catch (err) {
-    core.applyErrorToDiagnosis(state.model, {
-      error_code: "internal_error",
-      error_message: "请求构建失败: " + (err.message || String(err)),
-    });
+    core.applyErrorToDiagnosis(state.model, { error_code: "internal_error", error_message: "请求构建失败: " + (err.message || String(err)) });
     renderPage();
     return;
   }
-
-  if (!state.mqtt.client || state.mqtt.status !== "connected") {
-    core.applyErrorToDiagnosis(state.model, {
-      error_code: "interrupted",
-      error_message: "连接已断开，诊断已取消",
-    });
-    renderPage();
-    return;
-  }
-
-  d.state = "loading";
   d.alarm_title = state.model.alarm.active ? state.model.alarm.title : "无活动告警";
-  renderPage();
-  pushTraffic({
-    kind: "diagnosis_req",
-    topic: requestTopic,
-    payload: built.full,
-    reqId: reqId,
-    hash: built.payload_hash,
-  });
-
-  const entry = {
-    reqId: reqId,
-    deviceId: deviceId,
-    requestTopic: requestTopic,
-    responseTopic: responseTopic,
-    status: "pending",
-    timer: null,
-  };
-  state.mqtt.pending.set(reqId, entry);
-  const client = state.mqtt.client;
-
-  entry.timer = setTimeout(() => {
-    const cur = state.mqtt.pending.get(reqId);
-    if (!cur || cur.status !== "pending") {
-      return;
-    }
-    cur.status = "timeout";
-    state.mqtt.pending.delete(reqId);
-    core.applyErrorToDiagnosis(state.model, {
-      error_code: "timeout",
-      error_message: "等待响应超时（60 s），请重试或切 Mock",
-    });
-    pushTraffic({
-      kind: "diagnosis_terminal",
-      topic: responseTopic,
-      payload: { req_id: reqId, status: "error", error_code: "timeout" },
-      reqId: reqId,
-      status: "error",
-      errorCode: "timeout",
-    });
-    state.lastTerminal = { reqId: reqId, status: "error", source: null, error_code: "timeout" };
-    toast("诊断等待超时");
+  const service = window.__requestService;
+  if (!service) {
+    core.applyErrorToDiagnosis(state.model, { error_code: "internal_error", error_message: "统一请求服务未初始化" });
     renderPage();
-  }, core.REAL_RESPONSE_TIMEOUT_MS);
-
-  client.subscribe(responseTopic, { qos: 1 }, (subErr) => {
-    if (subErr) {
-      failRealEntry(entry, "订阅失败：" + (subErr.message || String(subErr)));
-      return;
-    }
-    client.publish(requestTopic, built.payload, { qos: 1, retain: false }, (pubErr) => {
-      if (pubErr) {
-        failRealEntry(entry, "发布失败：" + (pubErr.message || String(pubErr)));
+    return;
+  }
+  service.setMode(state.mode);
+  if (state.mode === "real") {
+    d.state = "loading";
+    renderPage();
+    const current = service.getState();
+    if (current.status !== "connected") {
+      service.connect({
+        url: $("f-broker-url").value.trim(),
+        clientId: $("f-client-id").value.trim(),
+        username: $("f-mqtt-user").value.trim(),
+        password: $("f-mqtt-pass").value,
+      });
+      const connected = await service.waitForConnection(9000);
+      if (!connected) {
+        core.applyErrorToDiagnosis(state.model, { error_code: "mqtt_connect", error_message: "无法连接 broker，可切换到 Mock 继续演示" });
+        renderPage();
         return;
       }
-      toast("已发布，等待 AI Bridge 响应...");
-    });
-  });
-}
-
-function failRealEntry(entry, message) {
-  const cur = state.mqtt.pending.get(entry.reqId);
-  if (cur) {
-    clearTimeout(cur.timer);
-    state.mqtt.pending.delete(entry.reqId);
-  }
-  const disconnected = state.mqtt.status !== "connected";
-  core.applyErrorToDiagnosis(state.model, {
-    error_code: disconnected ? "interrupted" : "send_failed",
-    error_message: disconnected ? "连接已断开，诊断已取消" : message,
-  });
-  pushTraffic({
-    kind: "diagnosis_terminal",
-    topic: entry.responseTopic,
-    payload: {
-      req_id: entry.reqId,
-      status: "error",
-      error_code: disconnected ? "interrupted" : "send_failed",
-      error_message: disconnected ? "连接已断开，诊断已取消" : message,
-    },
-    reqId: entry.reqId,
-    status: "error",
-    errorCode: disconnected ? "interrupted" : "send_failed",
-  });
-  toast(message);
-  renderPage();
-}
-
-function handleMqttMessage(topic, payload) {
-  let text = "";
-  try {
-    text = new TextDecoder().decode(payload);
-  } catch (err) {
-    text = String(payload);
-  }
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch (err) {
-    const m = topic.match(/\/ai\/response\/([^/]+)$/);
-    if (m) {
-      failRealEntry({ reqId: m[1], responseTopic: topic }, "收到无法解析的响应: " + err.message);
-    } else {
-      toast("收到无法解析的响应（" + topic + "）");
     }
+    service.send({ source: "board", request: built });
     return;
   }
 
-  const reqId = data && data.req_id !== undefined ? String(data.req_id) : null;
-  const entry = reqId ? state.mqtt.pending.get(reqId) : null;
-  if (!entry) {
-    toast("收到未知 req_id 的响应：" + (reqId || topic));
-    return;
-  }
-
-  const envelope = core.normalizeEnvelope(data);
-  if (envelope.status === "processing") {
-    pushTraffic({
-      kind: "mqtt_processing",
-      topic: topic,
-      payload: envelope,
-      reqId: reqId,
-    });
-    return; // page already shows loading
-  }
-
-  clearTimeout(entry.timer);
-  state.mqtt.pending.delete(reqId);
-  let mapped = null;
-  if (envelope.status === "success") {
-    mapped = core.mapResultToDiagnosis(envelope.result);
-    if (!mapped) {
-      core.applyErrorToDiagnosis(state.model, {
-        error_code: "provider_error",
-        error_message: "响应缺少有效诊断结果",
-      });
-      state.lastTerminal = { reqId: reqId, status: "error", source: null, error_code: "provider_error" };
-    } else {
-      core.applyResultToDiagnosis(state.model, mapped);
-      state.lastTerminal = {
-        reqId: reqId,
-        status: "success",
-        source: mapped.source,
-        error_code: null,
-      };
-    }
-  } else {
-    core.applyErrorToDiagnosis(state.model, envelope);
-    state.lastTerminal = {
-      reqId: reqId,
-      status: "error",
-      source: null,
-      error_code: envelope.error_code,
-    };
-  }
-  pushTraffic({
-    kind: "diagnosis_terminal",
-    topic: topic,
-    payload: envelope,
-    reqId: reqId,
-    status: envelope.status,
-    source: envelope.result && envelope.result.source ? envelope.result.source : null,
-    errorCode: envelope.error_code,
-  });
-  toast(
-    envelope.status === "success" && mapped
-      ? "诊断完成" + (mapped && mapped.degraded ? "（降级）" : "")
-      : "诊断失败: " + envelope.error_code
-  );
-  renderPage();
+  const result = await core.runMockDiagnosis(state.model, state.model.scenario);
+  if (!result) return;
+  const terminal = {
+    req_id: reqId,
+    device_id: deviceId,
+    type: core.REQUEST_TYPE,
+    status: result.state === "ok" ? "success" : "error",
+    error_code: result.state === "error" ? result.error_code : null,
+    error_message: result.state === "error" ? result.error_msg : null,
+    received_ts_ms: Date.now(),
+    bridge_ts_ms: Date.now(),
+    result: result.state === "ok" ? {
+      diagnosis_summary: result.summary,
+      risk_level: result.risk,
+      possible_causes: result.causes,
+      recommended_actions: result.actions,
+      confidence: Number(result.confidence_pct || 0) / 100,
+      need_shutdown: false,
+      source: "mock",
+    } : null,
+  };
+  const processing = {
+    req_id: reqId,
+    device_id: deviceId,
+    type: core.REQUEST_TYPE,
+    status: "processing",
+    received_ts_ms: Date.now(),
+    bridge_ts_ms: Date.now(),
+  };
+  service.recordMock({ source: "board", request: built, processing, terminal });
 }
 
 /* =====================================================================
@@ -1260,9 +922,6 @@ function buildScenarioButtons() {
     btn.dataset.scenario = s.id;
     btn.dataset.testid = "scenario-" + s.id;
     btn.addEventListener("click", () => {
-      if (state.mqtt.pending.size > 0) {
-        failPendingReal("场景已切换，真实诊断请求已取消", false);
-      }
       core.setScenario(state.model, s.id);
       renderPage();
     });
@@ -1270,17 +929,8 @@ function buildScenarioButtons() {
   }
 }
 
-function switchMode(mode) {
-  if (mode === "real" && state.mode === "mock") {
-    core.cancelMockDiagnosis(state.model);
-  }
+function syncModeFromService(mode) {
   state.mode = mode === "mock" ? "mock" : "real";
-  document.querySelectorAll(".mode-btn").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.mode === state.mode);
-  });
-  if (state.mode === "mock") {
-    failPendingReal("已切换到 Mock，真实诊断请求已取消", false);
-  }
   renderPage();
 }
 
@@ -1331,19 +981,26 @@ function init() {
       goBack();
     } else if (ev.key >= "1" && ev.key <= "6") {
       const scenario = core.SCENARIOS[Number(ev.key) - 1].id;
-      if (state.mqtt.pending.size > 0) {
-        failPendingReal("场景已切换，真实诊断请求已取消", false);
-      }
       core.setScenario(state.model, scenario);
       renderPage();
     }
   });
 
-  document.querySelectorAll(".mode-btn").forEach((btn) => {
-    btn.addEventListener("click", () => switchMode(btn.dataset.mode));
-  });
-  $("btn-connect").addEventListener("click", connectMqtt);
-  $("btn-disconnect").addEventListener("click", disconnectMqtt);
+  document.addEventListener("request-service-event", (event) => handleUnifiedServiceEvent(event.detail));
+  const drawer = $("debug-drawer");
+  const drawerToggle = $("debug-drawer-toggle");
+  const drawerClose = $("debug-drawer-close");
+  const drawerCollapse = $("debug-drawer-collapse");
+  const setDrawerOpen = (open) => {
+    if (!drawer || !drawerToggle) return;
+    drawer.hidden = !open;
+    drawerToggle.setAttribute("aria-expanded", String(open));
+    drawerToggle.textContent = open ? "关闭调试台" : "打开调试台";
+    requestAnimationFrame(updateScale);
+  };
+  drawerToggle && drawerToggle.addEventListener("click", () => setDrawerOpen(drawer.hidden));
+  drawerClose && drawerClose.addEventListener("click", () => setDrawerOpen(false));
+  drawerCollapse && drawerCollapse.addEventListener("click", () => setDrawerOpen(false));
   $("traffic-toggle").addEventListener("click", () => {
     const panel = $("traffic-panel");
     const open = panel.hidden;
