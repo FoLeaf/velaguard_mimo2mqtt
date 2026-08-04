@@ -97,3 +97,26 @@ Added MiMoProvider (OpenAI-compatible chat completions) behind the Provider seam
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: VelaGuard debug console：真实后端 + 单屏布局
+
+**Date**: 2026-08-04
+**Task**: VelaGuard debug console：真实后端 + 单屏布局
+**Branch**: `main`
+
+### Summary
+
+新增 debug-console（零依赖静态页）：请求编辑器自动算 payload_hash（与 Python build_request 逐字节一致，新增 13 组契约测试）、context 四段编辑器与预设、6 个契约保真 mock 场景；v2 改版接入真实后端（MQTT over WebSocket，vendored mqtt.js 5.15.2），默认连 ws://107.174.123.74:9001，订阅响应 topic 实时展示 processing/终态，断连/错误可恢复并可切 mock；UI 重构为单屏 16:9（100dvh 左右分栏，1366x768/1920x1080 无页面滚动）；服务器 mosquitto 增加 9001 WebSocket 监听并已部署验证（101 握手、bridge 自动重连、1883 不变），真实 E2E 经 bridge 日志确认 success 与 conflict；trellis-check 修复 pending 卡死、dvh 高度，159 测试全绿，ruff/mypy 干净。任务已归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3ee134d` | (see git log) |
+| `d964e64` | (see git log) |
+| `1573d2f` | (see git log) |
+
+### Status
+
+[OK] **Completed**
