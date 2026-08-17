@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "检查命令（pytest tests/unit tests/contract -q）与评审清单：契约变更、重试有界、幂等、安全边界"}
+{"file": ".trellis/spec/backend/mqtt-ai-bridge-contracts.md", "reason": "核对 TLS/context 改动未破坏 topic、QoS、retained、错误码等契约面"}
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "核对证书路径校验、日志不泄密钥、无 insecure TLS 开关"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "复查新代码是否复用 _normalize_object_section/truncate_json_value 等既有机制而非另起炉灶"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "复查 settings→client→__main__ 装配链与 docs/README/手册的一致性"}

@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端层入口规范：仓库边界、架构约束、手册作为事实来源的优先级规则"}
+{"file": ".trellis/spec/backend/mqtt-ai-bridge-contracts.md", "reason": "topic/QoS/envelope/幂等等契约约束；TLS 与 context 扩展不得破坏既有契约面"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "新增 context 段的容错丢弃/截断/missing 语义需与现有错误处理规范一致"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "context_dropped/context_truncated 等 warning 日志的风格与脱敏要求"}
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "MQTTS/TLS/证书路径与密钥处理的安全边界"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "新增代码必须落在既有分层目录，不引入新顶层模块"}
