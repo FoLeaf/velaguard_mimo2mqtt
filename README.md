@@ -6,7 +6,7 @@ Cloud-side AI Bridge for VelaGuard. This repository owns the **backend bridge on
 VelaGuard -> MQTT Broker -> AI Bridge -> HTTPS providers (MiMo)
 ```
 
-This first slice proves one end-to-end MQTT AI request/response loop with a pluggable provider (default **stub**, no live MiMo credentials required). A real OpenAI-compatible **MiMo** HTTPS provider is included behind the same seam and is opt-in via `PROVIDER=mimo`. `type=diagnosis` requests carry an optional structured `context` object (event, history, rules, device description) that the bridge normalizes into a bounded prompt, and provider failures fall back to a schema-valid degraded result instead of a bare error.
+This first slice proves one end-to-end MQTT AI request/response loop with a pluggable provider (default **stub**, no live MiMo credentials required). A real OpenAI-compatible **MiMo** HTTPS provider is included behind the same seam and is opt-in via `PROVIDER=mimo`. `type=diagnosis` requests carry an optional structured `context` object (event, history, rules, device description, sensor register map, manual summary) that the bridge normalizes into a bounded prompt, and provider failures fall back to a schema-valid degraded result instead of a bare error.
 
 For the current MQTT request/response contract, field rules, error codes, idempotency behavior, runtime configuration, and MiMo upstream details, see [docs/backend-api.md](docs/backend-api.md).
 
@@ -19,7 +19,7 @@ For the current MQTT request/response contract, field rules, error codes, idempo
 - In-memory idempotency on `req_id + payload_hash`
 - Pluggable `Provider` interface with default `StubProvider`
 - Publish v1 response envelope on `vg/{device_id}/ai/response/{req_id}` QoS 1, not retained
-- Normalize diagnosis context (`event` / `history` / `rules` / `device`) with tolerant drop/truncate rules
+- Normalize diagnosis context (`event` / `history` / `rules` / `device` / `sensor_config` / `manual_summary`) with tolerant drop/truncate rules
 - Load `industrial_fault_diagnosis` skill markdown with built-in fallback prompt
 - Fallback to `status=success` + `result.source="fallback"` when MiMo fails but the request budget remains
 - Bounded request deadline → `status=error`, `error_code=timeout`
@@ -81,6 +81,10 @@ Useful environment variables:
 | `MQTT_PORT` | `1883` | Broker port |
 | `MQTT_USERNAME` / `MQTT_PASSWORD` | empty | Optional auth |
 | `MQTT_CLIENT_ID` | `ai-bridge-dev` | Bridge client id |
+| `MQTT_TLS` | `false` | Enable MQTT over TLS (MQTTS); cert path config is ignored when `false` |
+| `MQTT_CA_PATH` | *(none)* | CA bundle file path; empty uses the system CA store |
+| `MQTT_CLIENT_CERT_PATH` | *(none)* | mTLS client certificate; must be paired with `MQTT_CLIENT_KEY_PATH` |
+| `MQTT_CLIENT_KEY_PATH` | *(none)* | mTLS client private key; must be paired with `MQTT_CLIENT_CERT_PATH` |
 | `REQUEST_TIMEOUT_MS` | `30000` | Overall request deadline |
 | `PROVIDER` | `stub` | Provider selection (`stub` or `mimo`) |
 | `STUB_DELAY_MS` | `0` | Artificial stub delay (timeout tests) |
@@ -99,7 +103,9 @@ Useful environment variables:
     "event": {"event_id": "evt_1", "severity": "warning", "title": "...", "current_value": 82.4},
     "history": [{"ts_ms": 1782450000000, "values": {"temperature": 72.8}}],
     "rules": [{"rule_id": "r1", "expr": "temperature > 70"}],
-    "device": {"name": "Motor Temp", "model": "RS485-TH-1", "description": "..."}
+    "device": {"name": "Motor Temp", "model": "RS485-TH-1", "description": "..."},
+    "sensor_config": {"registers": [{"key": "temperature", "addr": 40001}]},
+    "manual_summary": "Temperature sensor lives in holding register 40001."
   }
 }
 ```
@@ -108,6 +114,8 @@ Rules:
 
 - `context` present but not an object → `validation_error`.
 - `event` / `device` not objects, `history` / `rules` not arrays → dropped with a warning; the request still processes.
+- `sensor_config` not an object → dropped with a warning (bounded to ~4,096 chars).
+- `manual_summary` not a string → dropped with a warning (bounded to ~2,048 chars).
 - `history` keeps the first 50 entries, `rules` keeps the first 20; non-object entries are dropped.
 - Oversized sections are truncated with a `...[truncated]` marker.
 - Missing sections are explicitly listed as `context_notes` in the provider prompt.
@@ -280,10 +288,10 @@ Stub diagnosis success places structured content under `result`:
 
 ```json
 {
-  "diagnosis_summary": "stub: no live MiMo call",
+  "diagnosis_summary": "本地 StubProvider 未调用在线 MiMo。",
   "risk_level": "low",
   "possible_causes": [],
-  "recommended_actions": ["Retry with PROVIDER=mimo for live diagnosis"],
+  "recommended_actions": ["将 PROVIDER 设置为 mimo 以执行在线诊断。"],
   "need_shutdown": false,
   "confidence": 0.0,
   "source": "stub",
@@ -332,5 +340,6 @@ tests/
 - Device firmware / LVGL UI
 - Live MiMo verification is manual (see above); the automated suite uses a stub
 - TTS / ASR / manual parsing / OTA
+- Natural-language sensor config generation (`type=sensor_config`) and inspection reports (roadmap items, see [docs/backend-api.md](docs/backend-api.md#101-路线图规划中未实现))
 - SQL / Redis durable idempotency
-- Production MQTTS / token / ACL product features
+- Production broker administration: token verification and Broker ACL management (bridge-side TLS client config via `MQTT_TLS` is implemented)

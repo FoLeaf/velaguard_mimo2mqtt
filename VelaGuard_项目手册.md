@@ -514,7 +514,7 @@ AI 输出结构：
 
 ```json
 {
-  "summary": "电机温度持续超过阈值",
+  "diagnosis_summary": "电机温度持续超过阈值",
   "risk_level": "medium",
   "possible_causes": [
     "负载过高",
@@ -530,6 +530,8 @@ AI 输出结构：
   "confidence": 0.76
 }
 ```
+
+说明：线上响应由 AI Bridge 附加 `source`（取值 `mimo`/`stub`/`fallback`）字段；`stub`/`fallback` 来源时另附 `advisory_only` 字段，`fallback` 来源时另附 `fallback_reason` 字段。AI 输出仅供参考，Bridge 不据此执行设备写入。
 
 ### 5.8 音频提醒与播报
 
@@ -1102,7 +1104,7 @@ OTA Offer 至少包含：
 
 ```json
 {
-  "summary": "",
+  "diagnosis_summary": "",
   "risk_level": "low|medium|high",
   "possible_causes": [],
   "recommended_actions": [],

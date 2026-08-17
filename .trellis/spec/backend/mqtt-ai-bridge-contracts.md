@@ -68,7 +68,7 @@ The backend must therefore:
 - Not assume Broker session persistence will provide application-level durability.
 - Treat LWT/status as connectivity signals, not as proof that provider work completed.
 
-Exact backend `client_id`, clean-session setting, reconnect intervals, and subscription partitioning are not yet confirmed and must be chosen without breaking the device contract.
+Confirmed backend session settings: `MQTT_CLIENT_ID` (default `ai-bridge-dev`), `clean_session=true`, resubscribe `vg/+/ai/request` QoS 1 on every (re)connect, worker-thread dispatch off the network loop. TLS is opt-in via `MQTT_TLS=true` with optional `MQTT_CA_PATH` and the `MQTT_CLIENT_CERT_PATH`/`MQTT_CLIENT_KEY_PATH` mTLS pair; when TLS is on, configured paths must be existing files (startup fails fast) and no insecure skip-verify switch exists. Plaintext remains the dev default.
 
 ## Request Identity and Time
 
@@ -106,8 +106,9 @@ Use `req_id + payload_hash` as the AI Bridge idempotency key.
 
 - Completed duplicate: publish the same response again.
 - Processing duplicate: return or publish `status=processing` without duplicate provider work.
-- Failed duplicate: retry only when the recorded failure category allows it.
-- Same `req_id` with a different `payload_hash`: reject as a conflict/invalid replay; the exact error code remains to be designed.
+- Failed duplicate (accepted deviation from the project manual §16.4, recorded 2026-08-16): replay the stored error response; the bridge does not retry per failure category. Callers retry by issuing a new `req_id`.
+- Same `req_id` with a different `payload_hash`: reject with `error_code=conflict`.
+- The store is process-local and in-memory; restart clears all claim/complete/fail state (documented disposable behavior).
 
 QoS 1 does not remove the need for this logic.
 
@@ -365,9 +366,12 @@ schema-valid degraded fallback result instead of only an error envelope.
 | `context.device` | object | non-object → warn + drop |
 | `context.history` | array | max 50 entries; non-object entries dropped; oversized serialization truncated |
 | `context.rules` | array | max 20 entries; non-object entries dropped; oversized serialization truncated |
+| `context.sensor_config` | object | sensor register map; non-object → warn + drop |
+| `context.manual_summary` | string | manual digest; non-string → warn + drop |
 
 Section serialization limits: event 4096 chars, device 2048 chars, rules 8192
-chars, history 16384 chars. Truncation appends a `...[truncated]` marker and
+chars, history 16384 chars, sensor_config 4096 chars, manual_summary 2048
+chars. Truncation appends a `...[truncated]` marker and
 logs a warning. Missing sections are reported as `context_notes` in the user
 prompt. History entries missing `ts_ms`/`values` are kept with an explicit
 `__missing__` marker list and a warning. The single user message is bounded to
@@ -415,7 +419,8 @@ validation owner for provider/fallback/stub output.
 
 ### 4. Tests Required
 
-- Context normalization: non-object drop, history 50 / rules 20 limits, marker
+- Context normalization: non-object drop (including sensor_config object rule
+  and manual_summary string rule), history 50 / rules 20 limits, marker
   truncation, missing-section notes, total user-content bound.
 - Skill manager: load/cache, missing/empty fallback, name whitelist.
 - Fallback builder: v2 schema validity, severity→risk mapping, fixed template.
