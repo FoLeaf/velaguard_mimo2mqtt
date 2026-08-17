@@ -23,6 +23,8 @@ The user message is a JSON object with:
 - `context.rules`: configured alarm rules (each with `rule_id`, `expr`,
   `severity`, `message`, ...).
 - `context.device`: device description (name, model, description).
+- `context.sensor_config`: sensor configuration / register map for the device.
+- `context.manual_summary`: summary of the device user manual.
 - `context_notes`: explicit list of context sections that are missing.
 
 If a context section is missing or empty, say so explicitly in the summary

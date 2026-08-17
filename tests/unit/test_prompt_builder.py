@@ -43,6 +43,10 @@ def test_user_content_renders_context_sections() -> None:
                     "history": [{"ts_ms": 1, "values": {"temperature": 72.8}}],
                     "rules": [{"rule_id": "r1", "expr": "temperature > 70"}],
                     "device": {"name": "Motor Temp"},
+                    "sensor_config": {
+                        "registers": [{"key": "temperature", "addr": 40001}]
+                    },
+                    "manual_summary": "温度传感器接在 40001 寄存器。",
                 }
             }
         )
@@ -55,6 +59,8 @@ def test_user_content_renders_context_sections() -> None:
     assert data["context"]["history"][0]["values"]["temperature"] == 72.8
     assert data["context"]["rules"][0]["rule_id"] == "r1"
     assert data["context"]["device"]["name"] == "Motor Temp"
+    assert data["context"]["sensor_config"]["registers"][0]["addr"] == 40001
+    assert data["context"]["manual_summary"] == "温度传感器接在 40001 寄存器。"
     assert "context_notes" not in data
 
 
@@ -66,6 +72,8 @@ def test_user_content_marks_all_sections_missing() -> None:
         "history missing",
         "rules missing",
         "device missing",
+        "sensor_config missing",
+        "manual_summary missing",
     ]
 
 
@@ -80,6 +88,8 @@ def test_user_content_marks_partial_missing() -> None:
         "history missing",
         "rules missing",
         "device missing",
+        "sensor_config missing",
+        "manual_summary missing",
     ]
 
 
@@ -156,6 +166,60 @@ def test_oversized_history_truncated_with_marker() -> None:
     assert data["context"]["history"][-1] == "...[truncated]"
 
 
+def test_sensor_config_object_passes() -> None:
+    raw = {
+        "context": {
+            "sensor_config": {
+                "registers": [{"key": "temperature", "addr": 40001}]
+            }
+        }
+    }
+    data = json.loads(build_diagnosis_user_content(_request(raw=raw)))
+    assert data["context"]["sensor_config"]["registers"][0]["key"] == "temperature"
+    assert "sensor_config missing" not in data.get("context_notes", [])
+
+
+def test_sensor_config_non_object_dropped_and_missing() -> None:
+    raw = {"context": {"sensor_config": ["not", "an", "object"]}}
+    data = json.loads(build_diagnosis_user_content(_request(raw=raw)))
+    assert "sensor_config" not in data["context"]
+    assert "sensor_config missing" in data["context_notes"]
+
+
+def test_oversized_sensor_config_truncated_with_marker() -> None:
+    raw = {
+        "context": {
+            "sensor_config": {
+                "registers": [{"key": f"k{i}", "note": "s" * 200} for i in range(60)]
+            }
+        }
+    }
+    data = json.loads(build_diagnosis_user_content(_request(raw=raw)))
+    assert data["context"]["sensor_config"]["__truncated__"] == "...[truncated]"
+
+
+def test_manual_summary_string_passes() -> None:
+    raw = {"context": {"manual_summary": "手册摘要：温度阈值 70C。"}}
+    data = json.loads(build_diagnosis_user_content(_request(raw=raw)))
+    assert data["context"]["manual_summary"] == "手册摘要：温度阈值 70C。"
+    assert "manual_summary missing" not in data.get("context_notes", [])
+
+
+def test_manual_summary_non_string_dropped_and_missing() -> None:
+    raw = {"context": {"manual_summary": {"not": "a string"}}}
+    data = json.loads(build_diagnosis_user_content(_request(raw=raw)))
+    assert "manual_summary" not in data["context"]
+    assert "manual_summary missing" in data["context_notes"]
+
+
+def test_oversized_manual_summary_truncated_with_marker() -> None:
+    raw = {"context": {"manual_summary": "m" * 5000}}
+    data = json.loads(build_diagnosis_user_content(_request(raw=raw)))
+    summary = data["context"]["manual_summary"]
+    assert summary.endswith("...[truncated]")
+    assert len(summary) <= 2048
+
+
 def test_user_content_total_length_bounded() -> None:
     raw = {
         "context": {
@@ -170,6 +234,29 @@ def test_user_content_total_length_bounded() -> None:
     content = build_diagnosis_user_content(_request(raw=raw))
     assert len(content) <= MAX_USER_CONTENT_CHARS
     json.loads(content)  # must remain valid JSON
+
+
+def test_user_content_bounded_with_all_sections_present_and_oversized() -> None:
+    raw = {
+        "context": {
+            "history": [
+                {"ts_ms": i, "values": {"v": "z" * 1000}} for i in range(60)
+            ],
+            "rules": [{"expr": "q" * 1000} for _ in range(30)],
+            "event": {"title": "p" * 5000},
+            "device": {"description": "d" * 3000},
+            "sensor_config": {
+                "registers": [{"key": f"k{i}", "note": "s" * 200} for i in range(60)]
+            },
+            "manual_summary": "m" * 5000,
+        }
+    }
+    content = build_diagnosis_user_content(_request(raw=raw))
+    assert len(content) <= MAX_USER_CONTENT_CHARS
+    parsed = json.loads(content)  # must remain valid JSON
+    # The six-section budget overflows the 8192-char user bound; the compact
+    # path must still keep a non-empty context object.
+    assert parsed["context"] != {}
 
 
 def test_user_content_bounded_with_long_identity_fields() -> None:

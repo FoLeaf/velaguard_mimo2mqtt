@@ -40,6 +40,10 @@ class MqttBridgeClient:
         on_message: MessageHandler | None = None,
         keepalive: int = 60,
         worker_threads: int = 8,
+        tls_enabled: bool = False,
+        ca_path: str | None = None,
+        client_cert_path: str | None = None,
+        client_key_path: str | None = None,
     ) -> None:
         self._host = host
         self._port = port
@@ -67,6 +71,15 @@ class MqttBridgeClient:
 
         if username:
             self._client.username_pw_set(username, password)
+
+        if tls_enabled:
+            # Certificate verification is always on; no insecure skip switch
+            # is exposed. Empty ca_path falls back to the system CA store.
+            self._client.tls_set(
+                ca_certs=ca_path or None,
+                certfile=client_cert_path,
+                keyfile=client_key_path,
+            )
 
         self._client.on_connect = self._handle_connect
         self._client.on_disconnect = self._handle_disconnect

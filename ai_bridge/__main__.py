@@ -31,6 +31,10 @@ def build_runtime(settings: Settings) -> tuple[MqttBridgeClient, HandleAiRequest
         client_id=settings.mqtt_client_id,
         username=settings.mqtt_username,
         password=settings.mqtt_password,
+        tls_enabled=settings.mqtt_tls,
+        ca_path=settings.mqtt_ca_path,
+        client_cert_path=settings.mqtt_client_cert_path,
+        client_key_path=settings.mqtt_client_key_path,
     )
 
     use_case = HandleAiRequest(
@@ -50,10 +54,11 @@ def main(argv: list[str] | None = None) -> int:
     settings = load_settings()
     configure_logging(settings.log_level)
     logger.info(
-        "ai_bridge_starting provider=%s timeout_ms=%s client_id=%s",
+        "ai_bridge_starting provider=%s timeout_ms=%s client_id=%s tls=%s",
         settings.provider,
         settings.request_timeout_ms,
         settings.mqtt_client_id,
+        settings.mqtt_tls,
     )
     logger.warning(
         "idempotency_store=in_memory disposable=true restart_safe=false "

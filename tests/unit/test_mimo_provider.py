@@ -416,6 +416,8 @@ def test_injected_user_content_contains_normalized_context() -> None:
             "history": [{"ts_ms": 1, "values": {"temperature": 90}}],
             "rules": [{"rule_id": "r1", "expr": "temperature > 70"}],
             "device": {"name": "Motor Temp"},
+            "sensor_config": {"registers": [{"key": "temperature", "addr": 40001}]},
+            "manual_summary": "温度传感器接在 40001 寄存器。",
         }
     )
     with MiMoStubServer() as server:
@@ -431,6 +433,8 @@ def test_injected_user_content_contains_normalized_context() -> None:
     assert user["context"]["history"][0]["values"]["temperature"] == 90
     assert user["context"]["rules"][0]["rule_id"] == "r1"
     assert user["context"]["device"]["name"] == "Motor Temp"
+    assert user["context"]["sensor_config"]["registers"][0]["addr"] == 40001
+    assert user["context"]["manual_summary"] == "温度传感器接在 40001 寄存器。"
     assert "context_notes" not in user
 
 

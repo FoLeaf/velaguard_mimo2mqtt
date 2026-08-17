@@ -26,6 +26,8 @@ MAX_EVENT_CHARS = 4096
 MAX_DEVICE_CHARS = 2048
 MAX_RULES_CHARS = 8192
 MAX_HISTORY_CHARS = 16_384
+MAX_SENSOR_CONFIG_CHARS = 4096
+MAX_MANUAL_SUMMARY_CHARS = 2048
 TRUNCATED_MARKER = "...[truncated]"
 
 
@@ -41,6 +43,8 @@ class ContextBundle:
     history: list[dict[str, Any]] | None
     rules: list[dict[str, Any]] | None
     device: dict[str, Any] | None
+    sensor_config: dict[str, Any] | None
+    manual_summary: str | None
     missing: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -54,6 +58,10 @@ class ContextBundle:
             data["rules"] = self.rules
         if self.device is not None:
             data["device"] = self.device
+        if self.sensor_config is not None:
+            data["sensor_config"] = self.sensor_config
+        if self.manual_summary is not None:
+            data["manual_summary"] = self.manual_summary
         return data
 
 
@@ -123,6 +131,21 @@ def _normalize_object_section(
         return None
     truncated = truncate_json_value(value, max_chars, field=key)
     return truncated if isinstance(truncated, dict) else value
+
+
+def _normalize_text_section(
+    raw: dict[str, Any],
+    key: str,
+    max_chars: int,
+) -> str | None:
+    if key not in raw:
+        return None
+    value = raw[key]
+    if not isinstance(value, str):
+        logger.warning("context_dropped field=%s reason=not_string", key)
+        return None
+    truncated = truncate_json_value(value, max_chars, field=key)
+    return truncated if isinstance(truncated, str) else value
 
 
 def _normalize_list_section(
@@ -199,6 +222,12 @@ def normalize_diagnosis_context(raw_context: Any) -> ContextBundle:
         raw, "history", MAX_HISTORY_ITEMS, MAX_HISTORY_CHARS
     )
     rules = _normalize_list_section(raw, "rules", MAX_RULES_ITEMS, MAX_RULES_CHARS)
+    sensor_config = _normalize_object_section(
+        raw, "sensor_config", MAX_SENSOR_CONFIG_CHARS
+    )
+    manual_summary = _normalize_text_section(
+        raw, "manual_summary", MAX_MANUAL_SUMMARY_CHARS
+    )
 
     missing = tuple(
         name
@@ -207,6 +236,8 @@ def normalize_diagnosis_context(raw_context: Any) -> ContextBundle:
             ("history", history),
             ("rules", rules),
             ("device", device),
+            ("sensor_config", sensor_config),
+            ("manual_summary", manual_summary),
         )
         if value is None
     )
@@ -215,5 +246,7 @@ def normalize_diagnosis_context(raw_context: Any) -> ContextBundle:
         history=history,
         rules=rules,
         device=device,
+        sensor_config=sensor_config,
+        manual_summary=manual_summary,
         missing=missing,
     )

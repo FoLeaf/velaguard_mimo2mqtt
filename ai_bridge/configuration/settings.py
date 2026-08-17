@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +28,14 @@ class Settings(BaseSettings):
     mqtt_username: str | None = Field(default=None, alias="MQTT_USERNAME")
     mqtt_password: str | None = Field(default=None, alias="MQTT_PASSWORD")
     mqtt_client_id: str = Field(default="ai-bridge-dev", alias="MQTT_CLIENT_ID")
+    mqtt_tls: bool = Field(default=False, alias="MQTT_TLS")
+    mqtt_ca_path: str | None = Field(default=None, alias="MQTT_CA_PATH")
+    mqtt_client_cert_path: str | None = Field(
+        default=None, alias="MQTT_CLIENT_CERT_PATH"
+    )
+    mqtt_client_key_path: str | None = Field(
+        default=None, alias="MQTT_CLIENT_KEY_PATH"
+    )
     request_timeout_ms: int = Field(default=30_000, alias="REQUEST_TIMEOUT_MS")
     provider: Literal["stub", "mimo"] = Field(default="stub", alias="PROVIDER")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
@@ -57,6 +66,42 @@ class Settings(BaseSettings):
         if not 1 <= value <= 65535:
             raise ValueError("MQTT_PORT must be between 1 and 65535")
         return value
+
+    @field_validator(
+        "mqtt_ca_path",
+        "mqtt_client_cert_path",
+        "mqtt_client_key_path",
+    )
+    @classmethod
+    def _tls_path_blank_means_unset(cls, value: str | None) -> str | None:
+        # A set-but-blank path is treated the same as unset (system defaults).
+        if value is not None and not value.strip():
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _tls_settings_consistent(self) -> "Settings":
+        # TLS-off ignores certificate path configuration entirely so the
+        # plaintext dev posture stays simple (stale paths never block startup).
+        if not self.mqtt_tls:
+            return self
+
+        cert = self.mqtt_client_cert_path
+        key = self.mqtt_client_key_path
+        if (cert is None) != (key is None):
+            raise ValueError(
+                "MQTT_CLIENT_CERT_PATH and MQTT_CLIENT_KEY_PATH must be "
+                "configured as a pair for mTLS"
+            )
+
+        for name, value in (
+            ("MQTT_CA_PATH", self.mqtt_ca_path),
+            ("MQTT_CLIENT_CERT_PATH", cert),
+            ("MQTT_CLIENT_KEY_PATH", key),
+        ):
+            if value is not None and not Path(value).is_file():
+                raise ValueError(f"{name} file does not exist: {value}")
+        return self
 
     @field_validator("request_timeout_ms")
     @classmethod
