@@ -185,3 +185,25 @@ Added Chinese-first language instructions to diagnosis prompts and skills, local
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: Backend acceptance against project manual + deploy
+
+**Date**: 2026-08-17
+**Task**: Backend acceptance against project manual + deploy
+**Branch**: `main`
+
+### Summary
+
+对照项目手册验收后端：核心契约符合，记录 8 项差距（G1-G8）。按决策（手册采纳 diagnosis_summary、sensor_config 拆后续任务）实现 MQTTS 支持（MQTT_TLS/CA/mTLS）与 context 扩展（sensor_config/manual_summary 六段容错），文档记录已验收偏差与路线图。191 测试全绿。已部署到 107.174.123.74:42387 /opt/velaguard-ai-bridge 并端到端验证 MiMo status=success。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `42e0ca0` | (see git log) |
+| `6e28e2e` | (see git log) |
+
+### Status
+
+[OK] **Completed**
