@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 9
-- **Last Active**: 2026-08-17
+- **Total Sessions**: 10
+- **Last Active**: 2026-09-13
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~209 | Active |
+| `journal-1.md` | ~230 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 10 | 2026-09-13 | MQTT cloud dashboard: collector + SQLite + web UI (AI Bridge deprecated) | `c9a06fe` | `main` |
 | 9 | 2026-08-17 | Backend acceptance against project manual + deploy | `42e0ca0`, `6e28e2e` | `main` |
 | 8 | 2026-08-04 | Prefer Chinese diagnosis output | `fe64234` | `main` |
 | 7 | 2026-08-04 | Unify board simulator and debug console | `eede8f3` | `main` |

@@ -207,3 +207,24 @@ Added Chinese-first language instructions to diagnosis prompts and skills, local
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: MQTT cloud dashboard: collector + SQLite + web UI (AI Bridge deprecated)
+
+**Date**: 2026-09-13
+**Task**: MQTT cloud dashboard: collector + SQLite + web UI (AI Bridge deprecated)
+**Branch**: `main`
+
+### Summary
+
+Pivoted repo primary product to a read-only MQTT cloud dashboard per user request (AI Bridge no longer needed but kept and reused). New dashboard/ package: collector subscribes vg/+/status|telemetry|alarm|point_table (reusing generalized ai_bridge MqttBridgeClient with subscribe_filters param), tolerant ingest with quarantine ring buffer, sqlite3 store (devices/points/point_syncs/telemetry latest+history/alarms+events/raw_messages with retention), stdlib ThreadingHTTPServer with GET-only API and Chinese vanilla-JS UI (fleet view, point-table auto-sync from board JSON, live values, SVG trend charts, durable alarm log, raw-message debug view). Defined new topic vg/{id}/point_table (QoS1 retained, spec amendment) adopting TeamFalcons point-table schema; documented full board-facing contract in docs/dashboard-api.md for the TeamFalcons C1 implementation. Verified in a real browser end-to-end (scripts/demo_dashboard_seed.py, no broker needed): all four views render incl. LWT offline device, alarm raise, trend wave, quarantined message. 265 unit/contract tests green (ai_bridge regression-free); integration test added (broker-gated). Fixed during check: raw buffer now records valid messages too; oversize payloads stored truncated; per-message log demoted to debug; UI skip-rerender-when-unchanged to keep click targets stable.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c9a06fe` | (see git log) |
+
+### Status
+
+[OK] **Completed**
