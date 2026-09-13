@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -17,12 +17,14 @@ from ai_bridge.observability.logging import get_logger
 logger = get_logger(__name__)
 
 MessageHandler = Callable[[str, bytes], None]
+SubscribeFilter = tuple[str, int]
 
 
 class MqttBridgeClient:
     """Independent bridge MQTT client.
 
-    - Subscribes to ``vg/+/ai/request`` QoS 1 on connect/reconnect
+    - Subscribes to ``vg/+/ai/request`` QoS 1 on connect/reconnect (or the
+      explicit ``subscribe_filters`` list when provided)
     - Publishes responses QoS 1, retain=False
     - clean_session / clean_start True (no durable broker session assumed)
     - Dispatches inbound messages off the network loop so in-flight work
@@ -44,11 +46,15 @@ class MqttBridgeClient:
         ca_path: str | None = None,
         client_cert_path: str | None = None,
         client_key_path: str | None = None,
+        subscribe_filters: Sequence[SubscribeFilter] | None = None,
     ) -> None:
         self._host = host
         self._port = port
         self._keepalive = keepalive
         self._on_message = on_message
+        self._subscribe_filters: tuple[SubscribeFilter, ...] = (
+            tuple(subscribe_filters) if subscribe_filters else ((REQUEST_TOPIC_FILTER, AI_QOS),)
+        )
         self._connected = threading.Event()
         self._lock = threading.RLock()
         self._executor = ThreadPoolExecutor(
@@ -134,11 +140,11 @@ class MqttBridgeClient:
             return
 
         logger.info(
-            "mqtt_connected; subscribing filter=%s qos=%s",
-            REQUEST_TOPIC_FILTER,
-            AI_QOS,
+            "mqtt_connected; subscribing filters=%s",
+            ", ".join(f"{f} q{q}" for f, q in self._subscribe_filters),
         )
-        client.subscribe(REQUEST_TOPIC_FILTER, qos=AI_QOS)
+        for topic_filter, qos in self._subscribe_filters:
+            client.subscribe(topic_filter, qos=qos)
         self._connected.set()
 
     @staticmethod

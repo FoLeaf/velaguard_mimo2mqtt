@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ai-bridge"
-version = "0.1.0"
-description = "VelaGuard cloud AI Bridge minimal MQTT request/response loop"
+name = "velaguard-cloud"
+version = "0.2.0"
+description = "VelaGuard cloud services: MQTT dashboard collector (primary) and deprecated AI Bridge"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -22,13 +22,15 @@ dev = [
 ]
 
 [project.scripts]
+vg-dashboard = "dashboard.__main__:main"
 ai-bridge = "ai_bridge.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["ai_bridge*"]
+include = ["ai_bridge*", "dashboard*"]
 
 [tool.setuptools.package-data]
 "ai_bridge" = ["skills/*.md"]
+"dashboard" = ["web/*.html", "web/*.js", "web/*.css"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Forbidden patterns and verification commands for the final check pass"}
+{"file": ".trellis/spec/backend/mqtt-ai-bridge-contracts.md", "reason": "Contract compliance: topic root, QoS/retain table incl. new point_table amendment"}
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "Read-only cloud boundary, no secrets in logs"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "New message kinds added — cross-layer checklist applies"}

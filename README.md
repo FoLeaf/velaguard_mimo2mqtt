@@ -1,10 +1,49 @@
-# VelaGuard AI Bridge (minimal MQTT loop)
+# VelaGuard Cloud (MQTT dashboard + legacy AI Bridge)
 
-Cloud-side AI Bridge for VelaGuard. This repository owns the **backend bridge only** (no device firmware).
+Cloud-side services for VelaGuard. This repository owns the **cloud backend only** (no device firmware).
 
 ```text
-VelaGuard -> MQTT Broker -> AI Bridge -> HTTPS providers (MiMo)
+VelaGuard -> MQTT Broker -> Dashboard collector -> read-only web dashboard   (primary, 2026-09)
+VelaGuard -> MQTT Broker -> AI Bridge -> HTTPS providers (MiMo)              (deprecated, kept)
 ```
+
+## MQTT Cloud Dashboard (primary)
+
+A read-only cloud dashboard: a Python collector subscribes to board-published
+topics, persists state to SQLite, and serves a Chinese web UI over stdlib HTTP.
+
+```text
+vg/{device_id}/status        QoS 0, retained  -> device online/firmware/network (incl. LWT)
+vg/{device_id}/telemetry     QoS 0            -> [{id, value, ok, age_ms}] + trend history
+vg/{device_id}/alarm         QoS 1            -> raised/cleared events, durable alarm log
+vg/{device_id}/point_table   QoS 1, retained  -> device point table, auto-synced in the UI
+```
+
+Features: multi-device fleet view, point-table auto-sync (rendered straight from
+the board JSON), live values, trend charts, durable alarm history (captured even
+while no browser is open), raw-message debug view with quarantine reasons.
+
+The dashboard is **read-only end to end**: it never publishes to
+`vg/{device_id}/...`, never acknowledges or clears alarms, and exposes GET-only
+HTTP endpoints (boundary V5).
+
+```bash
+pip install -e .
+docker compose -f deploy/dev/docker-compose.yml up -d     # dev Mosquitto
+vg-dashboard                                              # or: python -m dashboard
+python -m dashboard.tools.synthetic_board --device-id vg-demo01   # simulated board
+# open http://localhost:8080
+```
+
+No-broker demo (seeds sample data directly): `python scripts/demo_dashboard_seed.py` → http://127.0.0.1:8765
+
+Contract details for the board team (topics, payload JSON, quarantine rules,
+HTTP API): [docs/dashboard-api.md](docs/dashboard-api.md) (Chinese).
+
+## AI Bridge (deprecated, kept)
+
+The original cloud AI Bridge remains runnable and tested, but is no longer the
+primary product; the dashboard reuses its MQTT client and observability infra.
 
 This first slice proves one end-to-end MQTT AI request/response loop with a pluggable provider (default **stub**, no live MiMo credentials required). A real OpenAI-compatible **MiMo** HTTPS provider is included behind the same seam and is opt-in via `PROVIDER=mimo`. `type=diagnosis` requests carry an optional structured `context` object (event, history, rules, device description, sensor register map, manual summary) that the bridge normalizes into a bounded prompt, and provider failures fall back to a schema-valid degraded result instead of a bare error.
 

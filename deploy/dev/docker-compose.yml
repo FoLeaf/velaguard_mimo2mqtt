@@ -1,5 +1,5 @@
-# Local Mosquitto for AI Bridge verification (controlled-LAN / localhost only).
-# Production requires MQTTS + per-device credentials + ACLs.
+# Local Mosquitto for AI Bridge / dashboard verification (controlled-LAN /
+# localhost only). Production requires MQTTS + per-device credentials + ACLs.
 services:
   mosquitto:
     image: eclipse-mosquitto:2
@@ -8,4 +8,30 @@ services:
       - "9001:9001"  # WebSocket listener for the browser debug console (dev)
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: unless-stopped
+
+  # Read-only cloud dashboard collector. Build/install happens on the host
+  # (`pip install -e .`); this compose file only pins the dev posture.
+  # For a quick start run instead:
+  #   vg-dashboard   (env: MQTT_HOST=localhost HTTP_PORT=8080 DB_PATH=dashboard.db)
+  dashboard:
+    image: python:3.12-slim
+    working_dir: /workspace
+    volumes:
+      - ../..:/workspace:ro
+    command: >
+      sh -c "pip install --no-cache-dir /workspace && python -m dashboard"
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      HTTP_HOST: "0.0.0.0"
+      HTTP_PORT: "8080"
+      DB_PATH: /data/dashboard.db
+      MQTT_CLIENT_ID: vg-dashboard-dev
+    ports:
+      - "8080:8080"
+    tmpfs:
+      - /data
+    depends_on:
+      - mosquitto
     restart: unless-stopped

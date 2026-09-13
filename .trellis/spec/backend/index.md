@@ -1,26 +1,29 @@
 # Backend Development Guidelines
 
-> Project-specific rules for the VelaGuard cloud AI Bridge and adjacent cloud services.
+> Project-specific rules for the VelaGuard cloud dashboard and adjacent cloud services.
 
 ---
 
 ## Repository Scope
 
-This is a **backend-only repository**. It is responsible for the cloud AI Bridge and related cloud services used by VelaGuard.
+This is a **backend repository**. Its primary product is the **MQTT cloud
+dashboard** (`dashboard/`): a collector that subscribes to board-published topics
+(`status`, `telemetry`, `alarm`, `point_table`), persists state to SQLite, and
+serves a read-only Chinese web dashboard over stdlib HTTP. The cloud AI Bridge
+(`ai_bridge/`) is deprecated but kept: it still runs and its tests stay green;
+the dashboard reuses its MQTT client and observability infrastructure.
 
-The confirmed cloud role is to connect to the MQTT Broker as an independent client, receive device requests, call MiMo and optional TTS, ASR, and manual-parsing services, and publish results through MQTT. The STM32H750B-DK/openvela firmware, LVGL UI, Modbus collector, local HTTP API, local filesystem, and device safety confirmation flow are outside this repository; their documented behavior is an external contract for this backend.
+The confirmed dashboard role is to connect to the MQTT Broker as an independent
+read-only client, ingest device state, and expose it to browsers. The dashboard
+never publishes to device-facing topics and exposes no write HTTP endpoint
+(boundary V5). The STM32H750B-DK/openvela firmware, LVGL UI, Modbus collector, local HTTP API, local filesystem, and device safety confirmation flow are outside this repository; their documented behavior is an external contract for this backend.
 
-Frontend specs are intentionally absent because this repository owns backend cloud services only.
+Frontend specs are still not maintained as a separate layer: the dashboard web
+page (`dashboard/web/`) is vanilla JS served by the collector itself, with no
+build step; its behavior is covered by the backend contracts. `board-sim/` and
+`debug-console/` remain developer tooling, not product frontends.
 
-The frontend artifacts are `debug-console/` (a dependency-free console used to simulate
-board-side AI requests) and `board-sim/` (a faithful 480x272 web replica of the board HMI
-wired to the real AI Bridge). Both run fully offline in mock mode, or connect to the dev
-broker over MQTT WebSocket (mqtt.js vendored under `debug-console/vendor/` and
-`board-sim/vendor/`) for real request/response testing. They add no backend runtime
-dependency and change no backend boundary; they are developer tooling, not product
-frontends.
-
-The first business slice exists under `ai_bridge/`. Selected implementation choices for that slice are listed below. Unlisted tools remain undecided; do not invent FastAPI, SQLAlchemy, PostgreSQL, or other stacks as project conventions.
+The first business slice exists under `ai_bridge/`. Selected implementation choices are listed below. Unlisted tools remain undecided; do not invent FastAPI, SQLAlchemy, PostgreSQL, or other stacks as project conventions.
 
 ## Sources of Truth
 
@@ -60,6 +63,17 @@ When these guidelines and either root document disagree, stop and resolve the di
 | Fallback semantics | `status=success` + `result.source="fallback"` | Only for eligible provider failures (`fallback_eligible=True`) with remaining request budget; no new envelope status |
 | Tests | `pytest` | `pytest tests/unit tests/contract`; integration needs Mosquitto |
 | Local Broker | Docker Compose Mosquitto | `deploy/dev/docker-compose.yml`; plaintext localhost only |
+
+## Selected Implementation Choices (cloud dashboard, 2026-09-13)
+
+| Choice | Selection | Notes |
+|---|---|---|
+| Package | `dashboard/` (import root `dashboard`), entry `python -m dashboard`, console script `vg-dashboard` | Separate from `ai_bridge/`; reuses `ai_bridge.transport.mqtt.client` (generalized `subscribe_filters`) and `ai_bridge.observability.logging` |
+| Persistence | **SQLite via stdlib `sqlite3`** (`DB_PATH`) | First durable store in this repo: latest state + bounded history + raw-message ring buffer; retention by `HISTORY_RETENTION_HOURS`; not an ORM, no migrations tool |
+| HTTP | **stdlib `http.server.ThreadingHTTPServer`** | Serves `dashboard/web/` static files + read-only JSON API; no web framework |
+| Web page | Vanilla JS, Chinese UI, fetch polling (2-3 s), no build step, no vendored mqtt.js | Browser never connects to the broker |
+| Read-only boundary | GET-only HTTP API; no MQTT publishes to `vg/{device_id}/...` | Boundary V5; no alarm ack/clear, no config push |
+| New topic | `vg/{device_id}/point_table` QoS 1 **retained** | See contracts file amendment; board-side publishing is TeamFalcons C1 |
 
 ## Still Undecided
 

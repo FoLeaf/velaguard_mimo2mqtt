@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VelaGuard 云看板</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">VG</span>
+      <span class="brand-name">VelaGuard 云看板</span>
+    </div>
+    <nav class="nav">
+      <button id="nav-devices" class="nav-btn active" data-view="devices">设备总览</button>
+      <button id="nav-alarms" class="nav-btn" data-view="alarms">告警</button>
+      <button id="nav-messages" class="nav-btn" data-view="messages">原始报文</button>
+    </nav>
+    <div id="conn-badge" class="conn-badge conn-unknown">检测中…</div>
+  </header>
+
+  <main id="main">
+    <section id="view-devices" class="view">
+      <div id="device-grid" class="device-grid"></div>
+    </section>
+
+    <section id="view-detail" class="view hidden">
+      <button id="back-to-devices" class="btn-link">← 返回设备总览</button>
+      <div id="device-header" class="device-header"></div>
+      <div class="detail-columns">
+        <div class="panel">
+          <h3>实时数据（按点表自动同步）</h3>
+          <div id="point-table-wrap" class="table-wrap"></div>
+          <h3>点表外实时值</h3>
+          <div id="unsynced-wrap" class="table-wrap"></div>
+        </div>
+        <div class="panel">
+          <h3>趋势图</h3>
+          <div class="trend-controls">
+            <select id="trend-point" class="select"></select>
+            <select id="trend-range" class="select">
+              <option value="5">最近 5 分钟</option>
+              <option value="30" selected>最近 30 分钟</option>
+              <option value="60">最近 1 小时</option>
+              <option value="360">最近 6 小时</option>
+            </select>
+          </div>
+          <div id="trend-chart" class="trend-chart"></div>
+          <div id="trend-meta" class="trend-meta"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-alarms" class="view hidden">
+      <div class="panel">
+        <h3>活动告警</h3>
+        <div id="active-alarms" class="table-wrap"></div>
+      </div>
+      <div class="panel">
+        <h3>告警事件历史</h3>
+        <div id="alarm-events" class="table-wrap"></div>
+      </div>
+    </section>
+
+    <section id="view-messages" class="view hidden">
+      <div class="panel">
+        <h3>最近收到的原始报文（含隔离消息）</h3>
+        <div id="raw-messages" class="table-wrap"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

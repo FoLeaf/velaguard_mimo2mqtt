@@ -1,8 +1,18 @@
 # MQTT and AI Bridge Contracts
 
-> Confirmed cloud/device protocol rules for the VelaGuard AI Bridge.
+> Confirmed cloud/device protocol rules for the VelaGuard AI Bridge and the cloud dashboard.
 
 ---
+
+## Repository Pivot (2026-09-13)
+
+The primary product of this repository is now the **MQTT cloud dashboard**
+(`dashboard/` package): a collector that subscribes to board-published topics,
+persists state to SQLite, and serves a read-only web dashboard. The AI Bridge
+(`ai_bridge/`) is **deprecated but kept**: its entry point still runs, its tests
+stay green, and the dashboard reuses its MQTT client and observability infra.
+New device-facing topics must be defined in `dashboard/contracts/topics.py` and
+recorded here.
 
 ## Architecture Boundary
 
@@ -10,11 +20,16 @@ The fixed communication path is:
 
 ```text
 VelaGuard -> MQTT Broker -> AI Bridge -> HTTPS -> MiMo / TTS / ASR / manual parsing
+VelaGuard -> MQTT Broker -> Dashboard collector -> read-only web dashboard
 ```
 
-VelaGuard and the AI Bridge are separate MQTT Broker clients. The backend must not add a direct device-to-bridge socket or expose MiMo's HTTPS API to device business logic.
+VelaGuard, the AI Bridge, and the dashboard collector are separate MQTT Broker clients. The backend must not add a direct device-to-bridge socket or expose MiMo's HTTPS API to device business logic.
 
-The AI Bridge account subscribes only to request topics and publishes only to response topics required by its role. Broker deployment and ACL administration may be external infrastructure, but the backend must be designed and tested against that boundary.
+The AI Bridge account subscribes only to request topics and publishes only to response topics required by its role. The dashboard account subscribes only to the device-published topics listed under "Dashboard Consumption Contract". Broker deployment and ACL administration may be external infrastructure, but the backend must be designed and tested against that boundary.
+
+The dashboard is **read-only end to end** (boundary V5): it never publishes to
+device-facing topics, never acknowledges or clears alarms, and exposes no write
+HTTP endpoint.
 
 ## Topics, QoS, and Retained Messages
 
@@ -25,6 +40,7 @@ The topic root is exactly `vg/{device_id}/...`; do not add an environment prefix
 | `telemetry` | 0 | No |
 | `trend` | 0 | No |
 | `status` | 0 | May retain the latest state |
+| `point_table` | 1 | **Yes** (amendment 2026-09-13: config-snapshot semantics like `status`, so late-joining dashboards receive the current table; still forbidden for events such as alarms/telemetry) |
 | `alarm` | 1 | No |
 | `ai/request`, `ai/response` | 1 | No |
 | `config/candidate` | 1 | No |
@@ -36,6 +52,7 @@ The topic root is exactly `vg/{device_id}/...`; do not add an environment prefix
 Relevant documented topic forms include:
 
 ```text
+vg/{device_id}/point_table
 vg/{device_id}/ai/request
 vg/{device_id}/ai/response/{req_id}
 vg/{device_id}/tts/request
@@ -449,6 +466,120 @@ validation owner for provider/fallback/stub output.
 - Idempotent replay for fallback responses identical to normal success.
 - Compare numeric fields directly against the range so out-of-range values are
   rejected as `provider_error` without conversion or overflow.
+
+## Scenario: Dashboard consumption contract (v1, implemented)
+
+### 1. Scope / Trigger
+
+The dashboard collector consumes board-published topics. Any change to the
+subscribed filters, payload field rules, or persistence semantics below must
+update this section, `dashboard/contracts/topics.py`, and tests together.
+Board-side publishing lives in the TeamFalcons firmware repo (its C1 plan); the
+collector must stay tolerant of fields it does not know.
+
+### 2. Signatures
+
+- Subscribe filters (all from one collector client, QoS per table above):
+  `vg/+/status`, `vg/+/telemetry`, `vg/+/alarm`, `vg/+/point_table`
+- Process entry: `python -m dashboard` / console script `vg-dashboard`
+- Synthetic board for tests/demo: `python -m dashboard.tools.synthetic_board`
+
+### 3. Contracts
+
+**status** (QoS 0, retained; LWT publishes `{"device_id":"...","online":false}`
+retained on the same topic):
+
+| Field | Type | Rule |
+|---|---|---|
+| `device_id` | string | non-empty; must equal topic `{device_id}`; mismatch → quarantine |
+| `online` | boolean | required; bool-like ints rejected |
+| `firmware` | string | optional |
+| `build_mode` | string | optional |
+| `network` | string | optional (`rj45\|esp01\|none` expected, unknown tolerated) |
+| `uptime_ms`, `ts_ms` | int | preserved as received |
+| `time_quality` | string | preserved (`unknown\|rtc\|ntp\|cloud` expected) |
+| (unknown keys) | any | preserved in `last_status_json` |
+
+**telemetry** (QoS 0, not retained; TeamFalcons C1 format):
+
+- Top-level JSON array of `{id, value, ok, age_ms}` objects; `id` string non-empty,
+  `ok` boolean (missing → `true`), `age_ms` non-negative int (missing → null).
+- The collector records `received_ts_ms` separately; it never rewrites device time.
+- Point ids not present in the synced point table are still stored and shown raw.
+
+**alarm** (QoS 1, not retained):
+
+- Tolerant field aliases: `ts` or `ts_ms` (device time, preserved);
+  `id` or `sensor_id` (point id); `kind`, `value`, `thr` optional.
+- `state` required: `raised` or `cleared` (unknown state values quarantined).
+- `alarm_id` preserved when present. Dedup/state key: `alarm_id` if present,
+  else `(device_id, point id, kind)`. Duplicate `raised` for an active alarm
+  updates `last_seen` only; `cleared` closes it; `cleared` without an open
+  alarm is recorded as an event only.
+- The dashboard never acknowledges or clears alarms (V5). `ack` fields are
+  display-only passthrough.
+
+**point_table** (QoS 1, **retained**; new topic defined by this task):
+
+- Payload is the TeamFalcons device point-table JSON:
+  `{schema_version, bus, hits, points:[...]}`.
+- `schema_version` must be `1` (int). `points` must be a non-empty array; each
+  point requires `id` matching `[A-Za-z0-9_]{1,23}` and tolerates
+  `name, addr, fc, reg, qty, dtype, scale, unit, cmp, warn, crit, fail_n`.
+  Unknown fields are preserved in `spec_json`.
+- Constraint values (`warn`/`crit`) may be omitted but never `null` (TeamFalcons rule).
+- On ingest, the collector upserts the device's points, records a version row
+  (full table JSON) in the sync history, and the UI renders from it.
+
+**Quarantine rule**: any message that is non-JSON, oversized (> 64 KiB soft cap),
+schema-invalid per above, or has a topic/payload `device_id` mismatch is stored
+in the raw-message buffer with a quarantine reason and logged at `warn`; it
+never crashes the collector and never enters the domain tables.
+
+### 4. Validation & Error Matrix
+
+| Condition | Domain tables updated? | Log level |
+|---|---|---|
+| valid message | yes | info |
+| non-JSON / oversize / schema-invalid | no (raw buffer only) | warn |
+| `device_id` topic/payload mismatch | no (raw buffer only) | warn |
+| duplicate retained `status`/`point_table` delivery | yes (idempotent upsert) | info |
+| duplicate `alarm` raised for open alarm | `last_seen_ts_ms` only | info |
+| `cleared` without open alarm | event log only | info |
+
+### 5. Good / Base / Bad Cases
+
+- **Good**: retained `point_table` arrives before any telemetry → device detail
+  page renders names/units from the table; later `telemetry` values map by `id`.
+- **Base**: collector restart → retained `status` and `point_table` restore the
+  fleet view; in-flight alarms published while offline are lost (documented
+  limitation; board pending queue is the device-side remedy).
+- **Bad**: alarm QoS 0 or retained alarm/telemetry is a forbidden-pattern
+  violation; oversized JSON must be quarantined, not stored.
+
+### 6. Tests Required
+
+- Contract: filter list, QoS/retain constants, point-table schema matrix,
+  device-id mismatch quarantine, 64 KiB cap.
+- Unit: status/telemetry/alarm normalization matrix, alarm state machine
+  (open/refresh/clear/orphan-clear), SQLite upsert idempotency, retention cleanup.
+- Integration (optional broker): synthetic_board → collector → HTTP API.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+- Publishing anything from the dashboard to `vg/{device_id}/...` (V5 violation).
+- Retaining alarms or telemetry, or lowering alarm QoS to 0.
+- Rewriting `ts_ms`/`uptime_ms`/`time_quality` on ingest.
+- Trusting QoS 1 to deduplicate alarms without an application-level key.
+
+#### Correct
+
+- Read-only collector: subscribe four filters, upsert idempotently, add
+  `received_ts_ms` alongside preserved device time.
+- Quarantine invalid input with a reason; keep serving the rest of the fleet.
+- Treat retained `status`/`point_table` as state snapshots, events never retained.
 
 ## Source References
 
