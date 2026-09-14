@@ -4,6 +4,7 @@ retention) and collector quarantine behavior. Temporary DB files only."""
 from __future__ import annotations
 
 import json
+import sqlite3
 
 import pytest
 
@@ -83,6 +84,28 @@ class TestAlarmStateMachine:
                  {"id": "temp", "state": "raised", "alarm_id": "a-1"})
         assert len(store.list_alarms()["active"]) == 2
 
+    def test_device_detail_surfaces_open_alarms_on_points(self, store, collector) -> None:
+        _publish(collector, "vg/dev01/point_table",
+                 {"schema_version": 1, "points": [{"id": "temp", "name": "温度"}]})
+        _publish(collector, "vg/dev01/telemetry",
+                 [{"id": "temp", "value": 36.5, "ok": True, "age_ms": 10}])
+        _publish(collector, "vg/dev01/alarm",
+                 {"id": "temp", "kind": "threshold_high", "state": "raised",
+                  "value": 36.5, "thr": 35, "level": "crit", "alarm_id": "a-1"})
+        device = store.get_device("dev01")
+        assert device["active_alarms"] == 1
+        assert device["alarms"][0]["point_id"] == "temp"
+        assert device["alarms"][0]["payload"]["level"] == "crit"
+        assert device["points"][0]["latest"]["ok"] is True
+        assert device["points"][0]["alarms"][0]["alarm_key"] == "a-1"
+        _publish(collector, "vg/dev01/alarm",
+                 {"id": "temp", "kind": "threshold_high", "state": "cleared",
+                  "value": 30, "thr": 35, "alarm_id": "a-1"})
+        device = store.get_device("dev01")
+        assert device["active_alarms"] == 0
+        assert device["alarms"] == []
+        assert device["points"][0]["alarms"] == []
+
 
 class TestStatusAndPointTable:
     def test_status_upsert_idempotent(self, store, collector) -> None:
@@ -114,6 +137,33 @@ class TestStatusAndPointTable:
         assert device["points"][1]["name"] == "温度2"
         assert len(device["point_syncs"]) == 2
 
+    def test_failed_point_sync_rolls_back_and_keeps_connection_usable(self, store) -> None:
+        point = {
+            "id": "temp",
+            "name": "温度",
+            "unit": None,
+            "scale": None,
+            "addr": None,
+            "fc": None,
+            "reg": None,
+            "qty": None,
+            "dtype": None,
+            "cmp": None,
+            "warn": None,
+            "crit": None,
+            "spec_json": '{"id":"temp"}',
+        }
+        table = {"schema_version": 1, "points": [{"id": "temp"}]}
+        store.sync_point_table("dev01", [point], table, now_ms())
+        with pytest.raises(sqlite3.IntegrityError):
+            store.sync_point_table("dev01", [point, point], table, now_ms())
+        device = store.get_device("dev01")
+        assert [p["id"] for p in device["points"]] == ["temp"]
+        store.upsert_status(
+            "dev01", {"device_id": "dev01", "online": True}, now_ms()
+        )
+        assert store.get_device("dev01")["online"] is True
+
     def test_point_table_telemetry_mapping(self, store, collector) -> None:
         _publish(collector, "vg/dev01/point_table",
                  {"schema_version": 1, "points": [{"id": "temp", "unit": "C"}]})
@@ -141,6 +191,17 @@ class TestQuarantine:
     def test_device_mismatch_quarantined(self, store, collector) -> None:
         _publish(collector, "vg/dev01/status", {"device_id": "other", "online": True})
         assert store.list_messages(10)[0]["quarantine_reason"] == "device_id_mismatch"
+
+    def test_duplicate_point_ids_quarantined(self, store, collector) -> None:
+        _publish(
+            collector,
+            "vg/dev01/point_table",
+            {"schema_version": 1, "points": [{"id": "temp"}, {"id": "temp"}]},
+        )
+        assert store.list_messages(10)[0]["quarantine_reason"] == "duplicate_field:id"
+        assert store.get_device("dev01") is None
+        _publish(collector, "vg/dev01/status", {"device_id": "dev01", "online": True})
+        assert store.get_device("dev01")["online"] is True
 
     def test_unknown_topic_quarantined(self, store, collector) -> None:
         # Valid 3-part shape but no parser registered for the kind.

@@ -28,6 +28,9 @@ The collector passes validated records to storage. State snapshots replace or
 upsert current state. Point-table syncs and telemetry history can have repeated
 records; do not claim all writes are deduplicated.
 
+Write methods share one connection. Commit on success and roll back on
+exception so a failed statement cannot abort later ingest or quarantine writes.
+
 Alarm transitions:
 
 - First `raised`: open the alarm and append an event.
@@ -43,6 +46,9 @@ Alarm transitions:
 - Add `received_ts_ms` without overwriting source `ts_ms`/`uptime_ms`/`time_quality`.
 - Keep current state separate from historical transitions and raw traffic.
 - HTTP history queries cap at 1440 minutes and 2000 points; raw queries cap at 500.
+- Device list `active_alarms` counts `alarms.state='raised'`. Device detail
+  returns the same open rows and attaches them to matching points and unsynced
+  samples. Telemetry `ok` is sample quality, not the alarm badge.
 - `cleanup(retention_hours, message_buffer_limit, alarm_event_limit)` trims
   telemetry history, raw traffic and alarm events. Point-sync history and
   current state are not removed by this cleanup.

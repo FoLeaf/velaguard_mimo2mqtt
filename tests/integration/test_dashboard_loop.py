@@ -138,12 +138,15 @@ def test_synthetic_board_to_dashboard_api(require_broker: None) -> None:
         mine = next(d for d in devices if d["device_id"] == device_id)
         assert mine["online"] is True
         assert mine["point_count"] == 3
+        assert mine["active_alarms"] == 1
 
         detail = _get_json(f"http://127.0.0.1:{stack.port}/api/devices/{device_id}")
         assert {p["id"] for p in detail["points"]} == {"temp", "humidity", "flood"}
         temp_point = next(p for p in detail["points"] if p["id"] == "temp")
         assert temp_point["name"] == "温度"
         assert temp_point["latest"]["value"] == build_telemetry(0)[0]["value"]
+        assert detail["active_alarms"] == 1
+        assert temp_point["alarms"][0]["payload"]["state"] == "raised"
 
         alarms = _get_json(f"http://127.0.0.1:{stack.port}/api/alarms")
         active = [a for a in alarms["active"] if a["device_id"] == device_id]

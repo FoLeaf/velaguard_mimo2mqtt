@@ -64,8 +64,19 @@ def test_valid_minimal_table() -> None:
             {"schema_version": 1, "points": [{"id": "a", "crit": None}]}
         ).encode(),
         json.dumps({"schema_version": 1, "points": ["nope"]}).encode(),
+        json.dumps(
+            {"schema_version": 1, "points": [{"id": "temp"}, {"id": "temp"}]}
+        ).encode(),
     ],
 )
 def test_invalid_tables_quarantined(payload: bytes) -> None:
     with pytest.raises(IngestError):
+        parse_point_table("dev01", payload)
+
+
+def test_duplicate_point_ids_quarantined() -> None:
+    payload = json.dumps(
+        {"schema_version": 1, "points": [{"id": "temp"}, {"id": "temp"}]}
+    ).encode()
+    with pytest.raises(IngestError, match="duplicate_field:id"):
         parse_point_table("dev01", payload)

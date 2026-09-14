@@ -183,12 +183,16 @@ def parse_point_table(device_id: str, payload: bytes) -> Parsed:
         raise IngestError("invalid_field:points")
 
     normalized: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
     for point in points:
         if not isinstance(point, dict):
             raise IngestError("invalid_field:points")
         point_id = point.get("id")
         if not isinstance(point_id, str) or not _POINT_ID_RE.fullmatch(point_id):
             raise IngestError("invalid_field:points")
+        if point_id in seen_ids:
+            raise IngestError("duplicate_field:id")
+        seen_ids.add(point_id)
         # TeamFalcons rule: threshold keys may be omitted but never null.
         if "warn" in point and point["warn"] is None:
             raise IngestError("null_field:warn")

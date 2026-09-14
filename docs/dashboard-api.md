@@ -53,6 +53,7 @@ VelaGuard 板端 ──MQTT──▶ Mosquitto Broker ◀──MQTT 订阅（只
 ```
 
 - 顶层数组；`id` 对应点表中的点位 id；`ok` 缺省视为 `true`；`age_ms` 可省略。
+- `ok` 表示采样质量，不是告警状态。首页卡片和设备详情的「告警」均来自 `alarm` 主题中 `state=raised` 的记录。
 - `value` 支持数字或字符串；点位不在点表中时仍会存储并在看板"点表外实时值"中显示。
 
 ### 2.3 alarm（QoS1，非保留）
@@ -77,7 +78,7 @@ VelaGuard 板端 ──MQTT──▶ Mosquitto Broker ◀──MQTT 订阅（只
             "dtype":"int16","scale":0.1,"unit":"C","cmp":"ge","warn":40,"crit":55,"fail_n":3}]}
 ```
 
-- `schema_version` 当前必须为 `1`；`points` 非空；`id` 匹配 `[A-Za-z0-9_]{1,23}`。
+- `schema_version` 当前必须为 `1`；`points` 非空；`id` 匹配 `[A-Za-z0-9_]{1,23}`，同一张点表内唯一。
 - `warn`/`crit` 可省略但**不可为 null**（TeamFalcons 规则）。
 - retained 语义与 status 相同：配置快照，晚启动的看板能立即取得当前点表。
 - 每次上报都会在看板中生成一个点表同步版本记录（含完整 JSON），便于回溯。
@@ -91,7 +92,7 @@ VelaGuard 板端 ──MQTT──▶ Mosquitto Broker ◀──MQTT 订阅（只
 | `non_json_payload` / `non_utf8_payload` | 无法解析 |
 | `payload_not_object` / `payload_not_array` | 顶层结构错误 |
 | `device_id_mismatch` | 主题与载荷 device_id 不一致 |
-| `missing_field:*` / `invalid_field:*` / `null_field:*` | 必填缺失/类型错误/null 阈值 |
+| `missing_field:*` / `invalid_field:*` / `null_field:*` / `duplicate_field:*` | 必填缺失/类型错误/null 阈值/点表 id 重复 |
 | `unsupported_schema_version` | 点表 schema_version ≠ 1 |
 | `payload_too_large` | 超过 64 KiB（只保留前 512 字节预览） |
 | `unknown_topic` / `unknown_kind` | 主题不在看板消费范围 |
@@ -102,7 +103,7 @@ VelaGuard 板端 ──MQTT──▶ Mosquitto Broker ◀──MQTT 订阅（只
 |---|---|
 | `GET /` 、`/app.js`、`/styles.css` | 看板静态页（中文，2 s 轮询） |
 | `GET /api/devices` | 设备列表：在线状态、固件、网络、活动告警数、点表点位数、最近上报 |
-| `GET /api/devices/{id}` | 设备详情：status 原文、点表（自动同步）+ 每点最新值、点表外实时值、点表同步版本 |
+| `GET /api/devices/{id}` | 设备详情：status 原文、活动告警（与首页卡片同一套 `raised` 计数）、点表（自动同步）+ 每点最新值与该点活动告警、点表外实时值、点表同步版本 |
 | `GET /api/devices/{id}/history?point=<id>&minutes=<n>` | 遥测历史（默认 60 分钟，上限 1440 分钟 / 2000 点） |
 | `GET /api/alarms` | 活动告警 + 最近告警事件（默认 200 条） |
 | `GET /api/messages?limit=<n>` | 最近原始报文（默认 100，上限 500，含隔离消息与原因） |

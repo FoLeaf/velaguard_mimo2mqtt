@@ -66,6 +66,8 @@ All payloads are UTF-8 JSON with a **64 KiB** limit.
 - `id` is non-empty; `value` is numeric, text or null.
 - Invalid entries are skipped. Missing/non-boolean `ok` becomes true;
   missing/invalid `age_ms` becomes null.
+- `ok` is sample quality, not alarm state. Device list badges and device
+  detail alarm rows use open `alarms.state='raised'` records.
 - Unknown point IDs are still stored and shown as unsynced values.
 
 **alarm**:
@@ -109,6 +111,7 @@ time separately as `received_ts_ms`.
 | Non-JSON or non-UTF-8 | Quarantine with parse reason |
 | Payload exceeds 64 KiB | Quarantine; retain only a bounded text preview |
 | Schema violation or status identity mismatch | Quarantine; no domain update |
+| Duplicate point IDs in one table | Quarantine as `duplicate_field:id`; no domain update |
 | Unsupported topic/kind | Quarantine as `unknown_topic`/`unknown_kind` |
 | Duplicate retained snapshot | Update current state; table sync records may repeat |
 | Duplicate raised alarm | Refresh last-seen/payload without another raise event |

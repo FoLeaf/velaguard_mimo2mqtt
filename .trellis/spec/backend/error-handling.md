@@ -8,7 +8,8 @@ and stores accepted records or quarantines rejected input.
 
 Stable quarantine categories include `non_json_payload`, `non_utf8_payload`,
 `payload_too_large`, `unknown_topic`, `unknown_kind`, `device_id_mismatch`,
-`unsupported_schema_version`, and `missing_field:*`/`invalid_field:*`/`null_field:*`.
+`unsupported_schema_version`, and `missing_field:*`/`invalid_field:*`/
+`null_field:*`/`duplicate_field:*`.
 
 - Invalid input must not update domain state.
 - Record a bounded raw message and its reason for inspection.

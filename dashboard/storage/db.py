@@ -12,8 +12,9 @@ import json
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS devices (
@@ -121,13 +122,27 @@ class DashboardStore:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        with self._lock:
+        with self._write():
             self._conn.executescript(_SCHEMA)
-            self._conn.commit()
 
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    @contextmanager
+    def _write(self) -> Iterator[None]:
+        """Commit a successful write; roll back so a failed statement cannot
+        leave the shared connection aborted for later ingest/quarantine."""
+        with self._lock:
+            try:
+                yield
+                self._conn.commit()
+            except Exception:
+                try:
+                    self._conn.rollback()
+                except sqlite3.Error:
+                    pass
+                raise
 
     # -- status -----------------------------------------------------------
 
@@ -139,7 +154,7 @@ class DashboardStore:
     ) -> None:
         online = 1 if status.get("online") is True else 0
         body = json.dumps(status, separators=(",", ":"), ensure_ascii=False)
-        with self._lock:
+        with self._write():
             self._conn.execute(
                 """
                 INSERT INTO devices (device_id, online, last_status_json, received_ts_ms)
@@ -151,7 +166,6 @@ class DashboardStore:
                 """,
                 (device_id, online, body, received_ts_ms),
             )
-            self._conn.commit()
 
     def _ensure_device(self, device_id: str, received_ts_ms: int) -> None:
         """Create a placeholder device row so telemetry/alarm/point_table can
@@ -185,13 +199,12 @@ class DashboardStore:
         """Replace the device point set (full snapshot sync) and record a
         version row. Returns the sync sequence number."""
         body = json.dumps(table, separators=(",", ":"), ensure_ascii=False)
-        with self._lock:
+        with self._write():
             self._ensure_device(device_id, received_ts_ms)
-            cur = self._conn.execute(
+            self._conn.execute(
                 "DELETE FROM points WHERE device_id = ?",
                 (device_id,),
             )
-            _ = cur
             self._conn.executemany(
                 """
                 INSERT INTO points (
@@ -226,7 +239,6 @@ class DashboardStore:
                 (device_id, body, received_ts_ms),
             )
             seq = int(cur.lastrowid or 0)
-            self._conn.commit()
         return seq
 
     # -- telemetry --------------------------------------------------------
@@ -237,7 +249,7 @@ class DashboardStore:
         samples: list[dict[str, Any]],
         received_ts_ms: int,
     ) -> None:
-        with self._lock:
+        with self._write():
             self._ensure_device(device_id, received_ts_ms)
             for sample in samples:
                 value = sample.get("value")
@@ -274,7 +286,6 @@ class DashboardStore:
                     """,
                     (device_id, sample["id"], numeric, text, ok, received_ts_ms),
                 )
-            self._conn.commit()
 
     # -- alarms -----------------------------------------------------------
 
@@ -291,7 +302,7 @@ class DashboardStore:
         payload_json = json.dumps(
             record.get("payload") or {}, separators=(",", ":"), ensure_ascii=False
         )
-        with self._lock:
+        with self._write():
             self._ensure_device(device_id, received_ts_ms)
             row = self._conn.execute(
                 "SELECT state FROM alarms WHERE device_id = ? AND alarm_key = ?",
@@ -310,7 +321,6 @@ class DashboardStore:
                     """,
                     (last_seen, payload_json, device_id, alarm_key),
                 )
-                self._conn.commit()
                 return
 
             if state == "cleared" and current_state != "raised":
@@ -319,7 +329,6 @@ class DashboardStore:
                     device_id, alarm_key, state, point_id, device_ts,
                     received_ts_ms, payload_json,
                 )
-                self._conn.commit()
                 return
 
             if row is None:
@@ -373,7 +382,6 @@ class DashboardStore:
                 device_id, alarm_key, state, point_id, device_ts,
                 received_ts_ms, payload_json,
             )
-            self._conn.commit()
 
     def _insert_alarm_event(
         self,
@@ -407,7 +415,7 @@ class DashboardStore:
         quarantine_reason: str | None = None,
         buffer_limit: int = 500,
     ) -> None:
-        with self._lock:
+        with self._write():
             self._conn.execute(
                 """
                 INSERT INTO raw_messages (
@@ -424,7 +432,6 @@ class DashboardStore:
                 """,
                 (buffer_limit,),
             )
-            self._conn.commit()
 
     # -- queries (read-only HTTP API) --------------------------------------
 
@@ -476,6 +483,15 @@ class DashboardStore:
                 " WHERE device_id = ? ORDER BY seq DESC LIMIT 10",
                 (device_id,),
             ).fetchall()
+            open_alarms = self._conn.execute(
+                """
+                SELECT device_id, alarm_key, state, point_id, first_seen_ts_ms,
+                       last_seen_ts_ms, last_json
+                FROM alarms WHERE device_id = ? AND state = 'raised'
+                ORDER BY COALESCE(first_seen_ts_ms, 0) DESC
+                """,
+                (device_id,),
+            ).fetchall()
 
         latest_map = {
             r["point_id"]: {
@@ -486,11 +502,20 @@ class DashboardStore:
             }
             for r in latest
         }
+        alarms = [self._active_alarm_from_row(r) for r in open_alarms]
+        alarms_by_point: dict[str, list[dict[str, Any]]] = {}
+        for alarm in alarms:
+            point_id = alarm["point_id"]
+            if not isinstance(point_id, str) or not point_id:
+                continue
+            alarms_by_point.setdefault(point_id, []).append(alarm)
         return {
             "device_id": dev["device_id"],
             "online": bool(dev["online"]),
             "received_ts_ms": dev["received_ts_ms"],
             "status": json.loads(dev["last_status_json"]),
+            "active_alarms": len(alarms),
+            "alarms": alarms,
             "point_syncs": [
                 {"seq": s["seq"], "received_ts_ms": s["received_ts_ms"]} for s in syncs
             ],
@@ -510,16 +535,18 @@ class DashboardStore:
                     "crit": p["crit"],
                     "spec": json.loads(p["spec_json"]),
                     "latest": latest_map.get(p["point_id"]),
+                    "alarms": alarms_by_point.get(p["point_id"], []),
                 }
                 for p in points
             ],
             "unsynced_latest": [
                 {
                     "point_id": pid,
-                    "value": v["value"] if v["value"] is not None else v["value_text"],
+                    "value": v["value"],
                     "ok": bool(v["ok"]),
                     "age_ms": v["age_ms"],
                     "received_ts_ms": v["received_ts_ms"],
+                    "alarms": alarms_by_point.get(pid, []),
                 }
                 for pid, v in latest_map.items()
                 if pid not in {p["point_id"] for p in points}
@@ -553,6 +580,17 @@ class DashboardStore:
             for r in rows
         ]
 
+    @staticmethod
+    def _active_alarm_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "device_id": row["device_id"],
+            "alarm_key": row["alarm_key"],
+            "point_id": row["point_id"],
+            "first_seen_ts_ms": row["first_seen_ts_ms"],
+            "last_seen_ts_ms": row["last_seen_ts_ms"],
+            "payload": json.loads(row["last_json"]),
+        }
+
     def list_alarms(self, event_limit: int = 200) -> dict[str, Any]:
         with self._lock:
             active = self._conn.execute(
@@ -572,17 +610,7 @@ class DashboardStore:
                 (event_limit,),
             ).fetchall()
         return {
-            "active": [
-                {
-                    "device_id": r["device_id"],
-                    "alarm_key": r["alarm_key"],
-                    "point_id": r["point_id"],
-                    "first_seen_ts_ms": r["first_seen_ts_ms"],
-                    "last_seen_ts_ms": r["last_seen_ts_ms"],
-                    "payload": json.loads(r["last_json"]),
-                }
-                for r in active
-            ],
+            "active": [self._active_alarm_from_row(r) for r in active],
             "events": [
                 {
                     "seq": r["seq"],
@@ -630,7 +658,7 @@ class DashboardStore:
         alarm_event_limit: int,
     ) -> None:
         cutoff = now_ms() - int(retention_hours * 3600 * 1000)
-        with self._lock:
+        with self._write():
             self._conn.execute(
                 "DELETE FROM telemetry_history WHERE received_ts_ms < ?", (cutoff,)
             )
@@ -650,7 +678,6 @@ class DashboardStore:
                 """,
                 (alarm_event_limit,),
             )
-            self._conn.commit()
 
 
 def now_ms() -> int:

@@ -29,6 +29,14 @@ def test_http_serves_collected_state_and_remains_read_only(tmp_path) -> None:
         assert devices[0]["device_id"] == "dev01"
         assert devices[0]["online"] is True
         assert devices[0]["status"]["ts_ms"] == 123
+        collector.handle_message(
+            "vg/dev01/alarm",
+            b'{"id":"temp","state":"raised","kind":"threshold_high","value":36,"thr":35}',
+        )
+        with urllib.request.urlopen(root + "/api/devices/dev01", timeout=5) as response:
+            detail = json.load(response)
+        assert detail["active_alarms"] == 1
+        assert detail["alarms"][0]["point_id"] == "temp"
         for path in ("/", "/app.js", "/styles.css"):
             with urllib.request.urlopen(root + path, timeout=5) as response:
                 assert response.status == 200
