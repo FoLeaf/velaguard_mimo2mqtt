@@ -1,7 +1,7 @@
 """Topic filters, QoS, and retain policy for the dashboard collector.
 
 Single owner of dashboard topic definitions. Board publishing semantics are
-documented in `.trellis/spec/backend/mqtt-ai-bridge-contracts.md`
+documented in `.trellis/spec/backend/mqtt-dashboard-contracts.md`
 (Scenario: Dashboard consumption contract) and must be updated together.
 """
 
@@ -33,7 +33,7 @@ SUBSCRIBE_FILTERS: tuple[tuple[str, int], ...] = (
     (POINT_TABLE_FILTER, POINT_TABLE_QOS),
 )
 
-# Ordinary dashboard JSON soft cap, aligned with the AI Bridge envelope rule.
+# Ordinary dashboard JSON soft cap.
 MAX_PAYLOAD_BYTES = 64 * 1024
 
 KIND_STATUS = "status"

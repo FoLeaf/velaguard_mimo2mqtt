@@ -1,4 +1,4 @@
-"""MQTT subscriber wiring: reuses the AI Bridge paho client infra.
+"""MQTT subscriber wiring for the dashboard collector.
 
 The collector is read-only: it only subscribes to device-published topics and
 never publishes to ``vg/{device_id}/...`` (boundary V5).
@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ai_bridge.transport.mqtt.client import MqttBridgeClient
 from dashboard.contracts import topics
+from dashboard.transport.mqtt import MqttClient
 
 MessageHandler = Callable[[str, bytes], None]
 
@@ -27,9 +27,9 @@ def build_subscriber(
     client_key_path: str | None = None,
     on_message: MessageHandler,
     worker_threads: int = 4,
-) -> MqttBridgeClient:
+) -> MqttClient:
     """Create the collector MQTT client subscribed to the four dashboard filters."""
-    return MqttBridgeClient(
+    return MqttClient(
         host=host,
         port=port,
         client_id=client_id,

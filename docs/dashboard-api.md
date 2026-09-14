@@ -2,8 +2,8 @@
 
 > 本文档是云看板（本仓库 `dashboard/`）对**板端上报**与**浏览器访问**两端的完整契约。
 > 板端实现方（TeamFalcons 固件仓库）按第 1-2 节实现上报；规范原文见
-> `.trellis/spec/backend/mqtt-ai-bridge-contracts.md` 的
-> "Scenario: Dashboard consumption contract"（英文，冲突时以 spec 为准）。
+> `.trellis/spec/backend/mqtt-dashboard-contracts.md` 的
+> "Scenario: Dashboard Consumption Contract"（英文，冲突时以 spec 为准）。
 
 ## 0. 总览
 
@@ -79,7 +79,7 @@ VelaGuard 板端 ──MQTT──▶ Mosquitto Broker ◀──MQTT 订阅（只
 
 - `schema_version` 当前必须为 `1`；`points` 非空；`id` 匹配 `[A-Za-z0-9_]{1,23}`。
 - `warn`/`crit` 可省略但**不可为 null**（TeamFalcons 规则）。
-- retained 语义与 status 相同：配置快照，晚启动的看板能立即取得当前点表（这是对"仅 status 可 retained"规则的显式修订，已记录在 spec）。
+- retained 语义与 status 相同：配置快照，晚启动的看板能立即取得当前点表。
 - 每次上报都会在看板中生成一个点表同步版本记录（含完整 JSON），便于回溯。
 
 ## 3. 隔离（quarantine）规则
@@ -113,14 +113,16 @@ VelaGuard 板端 ──MQTT──▶ Mosquitto Broker ◀──MQTT 订阅（只
 
 ```bash
 pip install -e .
-# 本地 broker（dev）：docker compose -f deploy/dev/docker-compose.yml up -d
+# 本地 broker（dev）：docker compose -f deploy/dev/docker-compose.yml up -d mosquitto
 vg-dashboard                       # 或 python -m dashboard
 # 另开终端：模拟板端
 python -m dashboard.tools.synthetic_board --device-id vg-demo01
 # 浏览器打开 http://localhost:8080
 ```
 
-环境变量见 `.env.example`（`MQTT_*` 与 AI Bridge 同约定；`HTTP_HOST/HTTP_PORT/DB_PATH/HISTORY_RETENTION_HOURS/MESSAGE_BUFFER_LIMIT/ALARM_EVENT_LIMIT/CLEANUP_INTERVAL_S`）。
+环境变量见 `.env.example`（MQTT 连接使用 `MQTT_*`；看板使用 `HTTP_HOST/HTTP_PORT/DB_PATH/HISTORY_RETENTION_HOURS/MESSAGE_BUFFER_LIMIT/ALARM_EVENT_LIMIT/CLEANUP_INTERVAL_S`）。
+
+看板独立使用 `dashboard/transport/mqtt.py` 和 `dashboard/observability/`，运行时仅需看板配置。MQTT 客户端只订阅显式配置的主题；模拟板端默认不订阅任何主题。
 
 ## 6. 已知限制（ MVP 范围）
 

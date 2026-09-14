@@ -5,14 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "velaguard-cloud"
 version = "0.2.0"
-description = "VelaGuard cloud services: MQTT dashboard collector (primary) and deprecated AI Bridge"
+description = "VelaGuard read-only MQTT cloud dashboard"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "paho-mqtt>=2.1.0",
   "pydantic>=2.7.0",
   "pydantic-settings>=2.3.0",
-  "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]
@@ -23,13 +22,11 @@ dev = [
 
 [project.scripts]
 vg-dashboard = "dashboard.__main__:main"
-ai-bridge = "ai_bridge.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["ai_bridge*", "dashboard*"]
+include = ["dashboard*"]
 
 [tool.setuptools.package-data]
-"ai_bridge" = ["skills/*.md"]
 "dashboard" = ["web/*.html", "web/*.js", "web/*.css"]
 
 [tool.pytest.ini_options]

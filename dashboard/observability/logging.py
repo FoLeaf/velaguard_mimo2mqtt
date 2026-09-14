@@ -16,13 +16,12 @@ _SECRET_KEYS = frozenset(
         "authorization",
         "secret",
         "product_auth_secret",
-        "mimo_api_key",
     }
 )
 
 _BEARER_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._\-+/=]+")
 _KEY_VALUE_RE = re.compile(
-    r"(?i)\b(password|token|api[_-]?key|mimo[_-]?api[_-]?key|authorization|secret)"
+    r"(?i)\b((?:[a-z0-9]+[_-])*(?:password|token|api[_-]?key|authorization|secret))"
     r"\s*[:=]\s*([^\s,;]+)"
 )
 
@@ -32,7 +31,10 @@ def redact_secrets(value: Any) -> Any:
     if isinstance(value, dict):
         redacted: dict[str, Any] = {}
         for key, item in value.items():
-            if str(key).lower() in _SECRET_KEYS:
+            normalized_key = str(key).lower().replace("-", "_")
+            if normalized_key in _SECRET_KEYS or any(
+                normalized_key.endswith("_" + secret_key) for secret_key in _SECRET_KEYS
+            ):
                 redacted[key] = "***"
             else:
                 redacted[key] = redact_secrets(item)

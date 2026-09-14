@@ -148,8 +148,8 @@ class TestQuarantine:
         assert store.list_messages(10)[0]["quarantine_reason"] == "unknown_kind"
 
     def test_oversized_topic_path_quarantined(self, store, collector) -> None:
-        # Deeper paths (e.g. AI Bridge topics) are outside dashboard scope.
-        _publish(collector, "vg/dev01/ai/request", {"req_id": "r"})
+        # Deeper paths are outside dashboard scope.
+        _publish(collector, "vg/dev01/status/extra", {"online": True})
         assert store.list_messages(10)[0]["quarantine_reason"] == "unknown_topic"
 
     def test_non_utf8_quarantined(self, store, collector) -> None:

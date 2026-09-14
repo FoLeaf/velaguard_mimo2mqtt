@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from ai_bridge.observability.logging import get_logger
+from dashboard.observability.logging import get_logger
 from dashboard.storage.db import DashboardStore
 
 logger = get_logger(__name__)
@@ -68,7 +68,8 @@ def build_handler(store: DashboardStore) -> type[BaseHTTPRequestHandler]:
                 match = _DEVICE_HISTORY_RE.match(path)
                 if match is not None:
                     query = parse_qs(parsed.query)
-                    point_id = (query.get("point") or [None])[0]
+                    points = query.get("point", [])
+                    point_id = points[0] if points else None
                     if not point_id:
                         self._send_json(400, {"error": "missing point parameter"})
                         return
@@ -133,11 +134,11 @@ def build_handler(store: DashboardStore) -> type[BaseHTTPRequestHandler]:
 def _bounded_int(
     query: dict[str, list[str]], key: str, *, default: int, maximum: int
 ) -> int:
-    raw = (query.get(key) or [None])[0]
-    if raw is None:
+    values = query.get(key, [])
+    if not values:
         return default
     try:
-        value = int(raw)
+        value = int(values[0])
     except ValueError:
         return default
     if value < 1:
@@ -161,7 +162,7 @@ class DashboardHttpServer:
 
     @property
     def port(self) -> int:
-        return self._port
+        return self._server.server_port
 
     def start(self) -> None:
         thread = threading.Thread(
@@ -170,7 +171,9 @@ class DashboardHttpServer:
             daemon=True,
         )
         thread.start()
-        logger.info("dashboard_http_listening host=%s port=%s", self._host, self._port)
+        logger.info(
+            "dashboard_http_listening host=%s port=%s", self._host, self.port
+        )
 
     def stop(self) -> None:
         try:

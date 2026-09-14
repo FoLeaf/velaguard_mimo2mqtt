@@ -1,87 +1,48 @@
 # Directory Structure
 
-> Framework-neutral organization for the VelaGuard cloud AI Bridge backend.
-
----
-
-## Current State
-
-The first backend package root is **`ai_bridge/`** (Python 3.12+, setuptools project `ai-bridge`).
-
-Dev Broker assets live under `deploy/dev/`. Tests live under `tests/` (`contract/`, `unit/`, `integration/`).
-
-The boundaries below remain required responsibilities. Map new work into these modules without collapsing transport, orchestration, provider integration, persistence, and security into one file.
-
-## Confirmed Backend Boundaries
-
-The cloud backend owns:
-
-- MQTT Broker connectivity for the AI Bridge.
-- Request subscription, validation, correlation, idempotency, and response publication.
-- Calls to MiMo, TTS, ASR, and manual-parsing services.
-- Cloud-only secret handling, including the MiMo API key.
-- Support for token-version migration and a single-device denylist at the Broker/backend boundary.
-- Cloud receipt timestamps and ingestion of allowed device events or error/warn summaries.
-- Cloud-side manual upload/parse flow when implemented.
-- Cloud-side OTA offer and chunk-serving behavior when implemented.
-
-The backend does not own device-side Modbus, LVGL, local HTTP APIs, local config commits, local safety confirmation, local event files, staging writes, firmware verification, or rollback execution.
-
-## Logical Layout
-
-Use this responsibility map when creating the first backend structure. Exact names and nesting remain implementation decisions.
+## Layout
 
 ```text
-ai_bridge/                             # selected Python package root
-  __main__.py                          # process startup / lifecycle wiring
-  configuration/                       # validated env settings
-  contracts/                           # topics, request/response models, error codes
-  transport/
-    mqtt/                              # paho client, subscribe/publish, reconnect
-  application/                         # request orchestration and use cases
-  providers/                           # Provider protocol + stub (+ future mimo)
-  persistence/                         # idempotency store (in-memory first slice)
-  observability/                       # logging + redaction helpers
-  cli/                                 # synthetic publisher / dev tools
+dashboard/
+  __main__.py            # Lifecycle and dependency assembly
+  configuration/        # Environment parsing and validation
+  contracts/topics.py   # Topic filters, QoS, retain policy, payload limit
+  transport/mqtt.py     # Generic MQTT transport; no implicit subscriptions
+  transport/subscriber.py # Explicit read-only collector subscriptions
+  application/          # Payload parsers and collector orchestration
+  storage/db.py         # SQLite schema, writes and read projections
+  observability/        # Logging configuration and redaction
+  http/                 # GET API and whitelisted static files
+  web/                  # Browser UI served by the collector
+  tools/                # Development-only synthetic board
 tests/
-  contract/
   unit/
+  contract/
   integration/
-deploy/dev/                            # Mosquitto compose for local verification
-debug-console/                         # developer-only console (offline mock + optional dev-broker WebSocket mode)
-board-sim/                             # 480x272 board HMI web replica (offline mock + optional dev-broker WebSocket mode)
+deploy/dev/             # Local broker and dashboard Compose stack
+docs/dashboard-api.md   # Board and browser API contract
+scripts/                # Local no-broker demo
 ```
 
-Create only modules needed by the implemented slice. Do not scaffold empty framework layers merely to match this map. TTS/ASR/manual/OTA packages appear only when those slices are implemented.
+## Dependency Rules
 
-## Dependency Direction
+- Entrypoints assemble dependencies; they do not parse payloads or build SQL.
+- `MqttClient` dispatches `(topic, bytes)` off the network thread. It has no
+  domain defaults; `build_subscriber` supplies `SUBSCRIBE_FILTERS`.
+- `application/ingest.py` owns external payload validation and normalization.
+  `Collector` routes parsed records into storage or quarantine.
+- `DashboardStore` owns SQL, alarm-state transitions and read projections.
+  HTTP handlers do not issue SQL directly.
+- The browser consumes HTTP JSON and does not connect to MQTT.
+- Logging is shared through `dashboard.observability`, not copied per layer.
+- The development publisher is not part of the read-only collector runtime.
 
-- Entrypoints assemble dependencies but contain no business rules.
-- MQTT and HTTP handlers translate transport input into contract types, invoke application use cases, and translate results back.
-- Application code owns orchestration, deadlines, idempotency decisions, and retry policy; it must not depend on provider-specific response shapes.
-- Provider adapters isolate MiMo, TTS, ASR, and manual-service APIs. Provider SDK objects must not leak into MQTT contracts.
-- Persistence is accessed through narrow interfaces defined around backend behavior, not around a chosen ORM.
-- Security and observability are cross-cutting dependencies, not ad hoc calls scattered through handlers.
-- A generic `utils` or `helpers` directory must not become a dumping ground. Put behavior in the domain-responsible module; create a shared utility only after searching for genuine reuse.
+## Naming and Placement
 
-## Protocol Placement Rules
+Preserve wire names such as `device_id`, `alarm_id`, `ts_ms`, `uptime_ms`,
+`time_quality` and `received_ts_ms`. Topic constants belong in
+`dashboard/contracts/topics.py`. Avoid generic utility directories and
+duplicated parsers or state machines.
 
-- Keep topic definitions, payload fields, QoS, and retained rules centralized under contracts/transport rather than duplicating string literals.
-- Keep `req_id + payload_hash` idempotency logic in one application/persistence boundary.
-- Keep provider timeout and retry mappings near provider adapters, while the overall request deadline remains an application concern.
-- Keep large-payload chunk/session handling separate from ordinary JSON request handlers.
-- Keep OTA distribution separate from AI request processing; both use MQTT, but they have different security and lifecycle rules.
-
-## Naming Conventions
-
-No language-specific naming convention is confirmed. Until one is selected:
-
-- Use domain terms from the root documents: `device_id`, `req_id`, `event_id`, `alarm_id`, `payload_hash`, `received_ts_ms`, and `time_quality`.
-- Do not rename confirmed wire fields to match framework conventions.
-- Use names that distinguish transport requests, application commands, provider requests, and published responses.
-- Avoid ambiguous modules such as `common`, `misc`, `manager`, or `service` without a domain qualifier.
-
-## Source References
-
-- `VelaGuard_项目手册.md`: sections 2.1, 4.1, 5.4, 8.3-8.4, 16.2, 16.4, and 16.9.
-- `VelaGuard_推进方案.md`: sections 6.2, 8.2, 9.2, and 16.3.
+Only `dashboard*` packages and `dashboard/web/*` runtime assets are distributed.
+Do not scaffold modules for unimplemented firmware or cloud capabilities.

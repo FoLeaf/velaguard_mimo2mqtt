@@ -1,7 +1,7 @@
 """Synthetic VelaGuard board: publishes the four dashboard topics for
 joint debugging, demos, and integration tests without real hardware.
 
-Contract mirrors `.trellis/spec/backend/mqtt-ai-bridge-contracts.md`
+Contract mirrors `.trellis/spec/backend/mqtt-dashboard-contracts.md`
 (Scenario: Dashboard consumption contract):
 
 - ``vg/{id}/point_table``  QoS 1, retained  (device point-table JSON)
@@ -21,7 +21,6 @@ import argparse
 import sys
 import time
 
-from ai_bridge.transport.mqtt.client import MqttBridgeClient, run_until_stopped
 from dashboard.contracts.topics import (
     ALARM_QOS,
     ALARM_RETAINED,
@@ -32,6 +31,7 @@ from dashboard.contracts.topics import (
     TELEMETRY_QOS,
     TELEMETRY_RETAINED,
 )
+from dashboard.transport.mqtt import MqttClient
 
 # Demo point table in the TeamFalcons device schema (schema_version 1).
 DEMO_POINT_TABLE = {
@@ -108,9 +108,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="stop after N telemetry cycles (0 = run forever)")
     args = parser.parse_args(argv)
 
-    # Reuse the AI Bridge client as a plain publisher; import here so --help
-    # works without a broker.
-    client = MqttBridgeClient(
+    client = MqttClient(
         host=args.host or _env_default("MQTT_HOST", "localhost"),
         port=args.port or int(_env_default("MQTT_PORT", "1883")),
         client_id=f"synthetic-board-{args.device_id}",

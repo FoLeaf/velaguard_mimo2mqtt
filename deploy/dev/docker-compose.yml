@@ -1,11 +1,10 @@
-# Local Mosquitto for AI Bridge / dashboard verification (controlled-LAN /
+# Local Mosquitto for dashboard verification (controlled-LAN /
 # localhost only). Production requires MQTTS + per-device credentials + ACLs.
 services:
   mosquitto:
     image: eclipse-mosquitto:2
     ports:
       - "1883:1883"
-      - "9001:9001"  # WebSocket listener for the browser debug console (dev)
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     restart: unless-stopped

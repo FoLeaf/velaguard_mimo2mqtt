@@ -1,27 +1,28 @@
 # VelaGuard 项目手册
 
+> 本仓库实现 MQTT 云看板。下文的硬件、openvela、LVGL、Modbus、本地配置和 OTA 描述属于配套设备端要求，不代表云看板提供设备控制能力。
+
 ## 1. 项目概述
 
 ### 1.1 项目名称
 
-VelaGuard：基于 openvela 的工业边缘 AI-Agent 网关
+VelaGuard：基于 openvela 的工业边缘网关与 MQTT 云看板
 
 ### 1.2 一句话定位
 
-VelaGuard 是一个运行在 STM32H750B-DK 上的独立工业边缘 AI 网关，用于接入 Modbus/工业传感器，完成本地采集、异常告警、自然语言配置、AI 诊断、音频提醒和安全确认。
+VelaGuard 是一个运行在 STM32H750B-DK 上的独立工业边缘网关，用于接入 Modbus/工业传感器，完成本地采集、异常告警、配置管理、音频提醒和安全确认，并通过 MQTT 将状态同步到只读云看板。
 
 ### 1.3 项目目标
 
-VelaGuard 的目标不是做一个普通 AI 聊天屏幕，而是做一个可以独立运行的工业现场网关：
+VelaGuard 的目标是做一个可以独立运行的工业现场网关：
 
 - 能直接接入工业传感器和设备。
 - 能通过 openvela 完成本地 HMI、网络、文件系统和任务管理。
-- 能通过 RJ45 或 ESP-01 Wi-Fi 接入云服务器 AI Bridge，并通过 MQTT 请求 MiMo 能力。
-- 能用自然语言生成传感器采集配置。
-- 能读取传感器用户手册并辅助生成寄存器配置。
-- 能在异常发生时主动告警，并给出 AI 诊断建议。
+- 能通过 RJ45 或 ESP-01 Wi-Fi 接入 MQTT Broker，上报状态、遥测、告警和点表。
+- 能管理传感器采集配置，并在保存前进行校验和测试读取。
+- 能在异常发生时主动告警，并保存事件和历史采样。
 - 能通过本地屏幕和音频提醒现场人员。
-- 能保证 AI 不直接控制设备，关键操作必须本地确认。
+- 云看板只读，设备端关键操作必须本地确认。
 - 能通过 MQTT-only OTA 完成受控固件升级，支持签名校验、staging 写入和失败回滚。
 
 ### 1.4 目标用户
@@ -33,13 +34,12 @@ VelaGuard 的目标不是做一个普通 AI 聊天屏幕，而是做一个可以
 
 ### 1.5 核心价值
 
-传统工业网关通常只能采集和转发数据。VelaGuard 在此基础上增加 AI-Agent 能力：
+VelaGuard 将设备本地闭环与云端可观测性结合：
 
-- 把传感器用户手册转换为可执行采集配置。
-- 把自然语言需求转换为 Modbus 寄存器采集规则。
-- 把原始告警转换为可解释的排查建议。
-- 把边缘设备能力封装为可控工具，供 AI 安全调用。
-- 在断网或 AI 不可用时仍保留本地告警和基本诊断能力。
+- 本地完成 Modbus 采集、规则判断、告警和日志保存。
+- 云看板自动同步设备点表、实时值、趋势和告警记录。
+- 浏览器关闭时，云端采集服务仍然保存上报数据。
+- 断网时，本地采集和告警继续运行。
 
 ## 2. 产品边界
 
@@ -54,9 +54,11 @@ VelaGuard 是独立网关，不依赖长期连接电脑运行。
   ↓ RS485 / Modbus RTU / 可选 CAN
 STM32H750B-DK + openvela
   ↓ RJ45 Ethernet 或 ESP-01 Wi-Fi
-MQTT Broker / AI Bridge 云服务器
-  ↓ HTTPS
-MiMo API / TTS / ASR / 云端手册解析服务
+MQTT Broker
+  ↓ MQTT 订阅
+云看板采集服务 + SQLite
+  ↓ HTTP 只读接口
+浏览器
 ```
 
 开发和维护时可以保留 USB CDC 或 UART 调试口，但它不是正式运行依赖。
@@ -67,31 +69,27 @@ MiMo API / TTS / ASR / 云端手册解析服务
 - ESP-01 Wi-Fi：备用网络，用 UART AT 指令或定制固件接入 Wi-Fi。
 - USB CDC / UART：只作为调试、日志和救援配置通道，不作为正式运行链路。
 
-无论网络是否可用，VelaGuard 都必须保持本地采集、规则判断、告警弹窗、日志保存和本地告警音可用。AI 诊断、自然语言配置、手册解析和 TTS 属于联网增强能力。OTA 属于受控维护能力，必须复用 MQTT/MQTTS 链路，不要求板端额外引入 HTTPS 下载器。
+无论网络是否可用，VelaGuard 都必须保持本地采集、规则判断、告警弹窗、日志保存和本地告警音可用。云看板属于联网查看能力。OTA 属于受控维护能力，必须复用 MQTT/MQTTS 链路，不要求板端额外引入 HTTPS 下载器。
 
-### 2.2 AI 控制边界
+### 2.2 云看板与设备控制边界
 
-AI 可以做：
+云看板负责：
 
-- 解析自然语言需求。
-- 生成传感器配置建议。
-- 解释传感器手册中的寄存器表。
-- 生成异常诊断报告。
-- 生成巡检报告。
-- 推荐排查步骤。
+- 接收设备状态、遥测、告警和点表。
+- 保存状态与历史数据。
+- 提供只读网页和 HTTP API。
 
-AI 不可以直接做：
+云看板不能：
 
-- 直接写入寄存器。
-- 直接修改采集配置。
-- 直接控制执行器。
-- 直接关闭告警。
-- 直接覆盖本地安全规则。
+- 写入寄存器或修改采集配置。
+- 控制执行器或覆盖本地安全规则。
+- 确认、清除设备告警。
+- 发布设备控制消息。
 
-所有写入类动作必须经过：
+设备端写入类动作必须经过：
 
 ```text
-AI 生成建议
+用户编辑配置
 → 板端 schema 校验
 → 风险检查
 → LVGL 页面预览
@@ -107,14 +105,14 @@ AI 生成建议
 |---|---|
 | STM32H750B-DK | 主控开发板，运行 openvela |
 | Cortex-M7 | 负责采集、规则、UI、网络、JSON 处理 |
-| SDRAM | LVGL framebuffer、网络缓冲、AI 响应缓存 |
+| SDRAM | LVGL framebuffer、网络缓冲、采样缓存 |
 | QSPI Flash / eMMC | 固件、资源文件、配置、日志、音频片段、OTA staging image |
 
 ### 3.2 人机交互资源
 
 | 外设 | 用途 |
 |---|---|
-| 4.3 寸 LCD | 工业仪表盘、告警详情、AI 诊断报告 |
+| 4.3 寸 LCD | 工业仪表盘、告警详情、配置预览 |
 | 电容触摸屏 | 配置确认、页面切换、告警处理 |
 | 板载按键 | 快速确认、返回、静音、调试动作 |
 | LED | 正常、告警、联网、采集状态提示 |
@@ -152,9 +150,8 @@ RJ45 不可用且 ESP-01 Wi-Fi 可用
 
 | 外设 | 用途 |
 |---|---|
-| 音频 Codec / SAI / I2S | 播放告警音和诊断播报 |
+| 音频 Codec / SAI / I2S | 播放本地告警音 |
 | 本地 WAV/PCM 文件 | 离线告警提示音 |
-| 云端 TTS 音频 | 将 AI 诊断文本转换为语音播报 |
 
 音频不是核心判断链路。即使音频不可用，屏幕告警和日志仍必须正常工作。
 
@@ -165,7 +162,7 @@ RJ45 不可用且 ESP-01 Wi-Fi 可用
 ```text
 ┌──────────────────────────────────────────────┐
 │                手机 / Web 配置端              │
-│  自然语言输入 / 上传手册 / 查看设备状态        │
+│  本地配置预览 / 测试读取 / 查看设备状态        │
 └───────────────────────┬──────────────────────┘
                         │ HTTP / LAN
                         ↓
@@ -173,12 +170,12 @@ RJ45 不可用且 ESP-01 Wi-Fi 可用
 │        STM32H750B-DK + openvela 网关          │
 │                                              │
 │  ┌──────────────┐  ┌──────────────────────┐  │
-│  │  LVGL HMI    │  │  Audio Alert / TTS    │  │
+│  │  LVGL HMI    │  │     Audio Alert       │  │
 │  └──────┬───────┘  └──────────┬───────────┘  │
 │         │                     │              │
 │  ┌──────↓─────────────────────↓───────────┐  │
-│  │          VelaGuard Agent Runtime        │  │
-│  │  Tools / Skills / Safety Guard / JSON   │  │
+│  │          VelaGuard Application          │  │
+│  │  Config / Validation / Local Confirm   │  │
 │  └──────┬──────────────┬──────────────┬───┘  │
 │         │              │              │      │
 │  ┌──────↓──────┐ ┌─────↓─────┐ ┌─────↓─────┐│
@@ -192,8 +189,10 @@ RJ45 不可用且 ESP-01 Wi-Fi 可用
           │ RS485                  │ MQTT
           ↓                        ↓
 ┌──────────────────┐       ┌──────────────────┐
-│ 工业传感器/设备   │       │ AI Bridge 云服务  │
+│ 工业传感器/设备   │       │ MQTT Broker       │
 └──────────────────┘       └──────────────────┘
+                                   ↓ MQTT
+                           云看板采集 / SQLite / HTTP
 ```
 
 ### 4.2 板端软件分层
@@ -202,15 +201,7 @@ RJ45 不可用且 ESP-01 Wi-Fi 可用
 Application Layer
   hmi_app
   sensor_setup_app
-  diagnosis_app
   web_config_app
-
-Agent Layer
-  vela_agent_runtime
-  tool_router
-  skill_manager
-  safety_guard
-  prompt_builder
 
 Service Layer
   modbus_collector
@@ -345,7 +336,7 @@ modbus_collector
 
 ### 5.3 规则引擎
 
-负责本地实时判断，不依赖云端 AI。
+负责本地实时判断，不依赖云端服务。
 
 支持规则：
 
@@ -372,58 +363,14 @@ modbus_collector
 }
 ```
 
-### 5.4 AI-Agent Runtime
+### 5.4 传感器配置与安全确认
 
-负责把本地能力封装成工具，并通过 MQTT 与云服务器 AI Bridge 安全交互。AI Bridge 再调用 MiMo API、TTS、ASR 和手册解析服务。
-
-核心组成：
-
-- `tool_router`：工具调用路由。
-- `skill_manager`：加载和管理 Skill。
-- `prompt_builder`：构造诊断和配置生成提示词。
-- `ai_bridge_client`：通过 MQTT 请求云服务器 AI Bridge。
-- `safety_guard`：校验 AI 输出。
-- `json_validator`：校验结构化配置。
-
-可用工具：
-
-```text
-list_sensors()
-read_sensor(device_id)
-read_history(device_id, minutes)
-get_alarm(event_id)
-validate_sensor_config(config_json)
-preview_sensor_config(config_json)
-apply_sensor_config(config_json)
-save_diagnosis(event_id, diagnosis_json)
-play_alert_sound(sound_id)
-```
-
-写入类工具必须经过本地确认：
-
-```text
-apply_sensor_config()
-clear_alarm()
-set_alarm_rule()
-write_device_register()
-```
-
-### 5.5 自然语言添加传感器
-
-用户可以通过触摸屏或手机页面输入自然语言。
-
-输入示例：
-
-```text
-添加一台 Modbus 温湿度传感器，地址 1，温度寄存器 40001，湿度寄存器 40002，每 2 秒采集一次，温度超过 70 度报警。
-```
+用户在设备端填写通信参数、寄存器、采样周期和告警阈值。
 
 处理流程：
 
 ```text
-用户输入自然语言
-→ 网关通过 MQTT 请求 AI Bridge
-→ MiMo 返回 sensor_config JSON
+用户编辑传感器配置
 → 板端做 schema 校验
 → 板端做风险校验
 → LVGL 显示配置预览
@@ -443,103 +390,23 @@ write_device_register()
 - 报警阈值是否合理。
 - 是否与已有设备冲突。
 
-### 5.6 上传传感器用户手册
+### 5.5 MQTT 云看板
 
-用户可以通过手机 Web 页面上传传感器用户手册。
+云端采集服务订阅设备的四类上报：
 
-推荐处理方式：
+- `status`：在线状态、固件、网络和时间信息。
+- `telemetry`：实时值与历史趋势。
+- `alarm`：告警触发与恢复事件。
+- `point_table`：设备点表快照，自动同步名称、单位和寄存器配置。
 
-```text
-手机上传 PDF / 图片 / 文档
-→ 云端手册解析服务
-→ 提取通信参数和寄存器表
-→ 生成 register_map
-→ 网关拉取或接收 sensor_profile
-→ 用户选择要采集的字段
-→ MiMo 生成最终采集配置
-→ 网关校验并确认
-```
+数据存入 SQLite，由只读 HTTP API 提供给浏览器。非法报文进入带原因的隔离缓冲，不更新业务状态。完整契约见 [docs/dashboard-api.md](docs/dashboard-api.md)。
 
-手册解析结果示例：
-
-```json
-{
-  "manual_id": "manual_temp_humi_x1",
-  "sensor_name": "RS485 Temperature Humidity Sensor",
-  "protocol": "modbus_rtu",
-  "default_serial": {
-    "baudrate": 9600,
-    "parity": "N",
-    "data_bits": 8,
-    "stop_bits": 1
-  },
-  "register_map": [
-    {
-      "key": "temperature",
-      "label": "Temperature",
-      "function_code": 3,
-      "addr": 40001,
-      "data_type": "int16",
-      "scale": 0.1,
-      "unit": "C"
-    },
-    {
-      "key": "humidity",
-      "label": "Humidity",
-      "function_code": 3,
-      "addr": 40002,
-      "data_type": "int16",
-      "scale": 0.1,
-      "unit": "%"
-    }
-  ]
-}
-```
-
-### 5.7 AI 异常诊断
-
-异常发生后，用户可以点击 AI 诊断。
-
-AI 输入上下文：
-
-- 当前异常事件
-- 当前采样值
-- 最近历史数据
-- 传感器配置
-- 报警规则
-- 用户手册摘要
-- 设备说明
-
-AI 输出结构：
-
-```json
-{
-  "diagnosis_summary": "电机温度持续超过阈值",
-  "risk_level": "medium",
-  "possible_causes": [
-    "负载过高",
-    "散热异常",
-    "温度传感器安装松动"
-  ],
-  "recommended_actions": [
-    "检查电机负载是否异常",
-    "检查风扇或散热通道",
-    "复测温度传感器连接"
-  ],
-  "need_shutdown": false,
-  "confidence": 0.76
-}
-```
-
-说明：线上响应由 AI Bridge 附加 `source`（取值 `mimo`/`stub`/`fallback`）字段；`stub`/`fallback` 来源时另附 `advisory_only` 字段，`fallback` 来源时另附 `fallback_reason` 字段。AI 输出仅供参考，Bridge 不据此执行设备写入。
-
-### 5.8 音频提醒与播报
+### 5.6 本地音频提醒
 
 音频功能包括：
 
 - 本地告警提示音。
 - 告警等级差异化提示音。
-- AI 诊断摘要播报。
 - 网络失败或采集失败提示音。
 
 音频链路：
@@ -547,21 +414,17 @@ AI 输出结构：
 ```text
 告警发生
 → 播放本地 alert.wav
-→ AI 诊断完成
-→ 请求云端 TTS 生成音频
-→ AI Bridge 通过 MQTT 返回短音频或音频分片
-→ audio_service 播放
+→ 用户静音或告警恢复
 ```
 
 音频策略：
 
 - 告警音必须本地可播放。
-- TTS 播报失败不影响屏幕诊断结果。
+- 音频失败不影响屏幕告警和日志。
 - 用户可以静音。
 - 高等级告警可以重复提示。
-- 板端不为 TTS 播放额外引入 HTTPS 下载链路，优先复用 MQTT/MQTTS。
 
-### 5.9 手机远程配置
+### 5.7 手机局域网配置
 
 H750B-DK 通过以太网加入局域网后，可以提供一个轻量 Web 配置入口。
 
@@ -569,23 +432,20 @@ H750B-DK 通过以太网加入局域网后，可以提供一个轻量 Web 配置
 
 - 查看当前设备状态。
 - 添加传感器。
-- 输入自然语言配置。
-- 上传用户手册。
 - 查看配置预览。
 - 查看告警日志。
-- 触发 AI 诊断。
 
 手机端的关键操作仍需本地安全策略保护。涉及设备写入或规则变更时，网关屏幕应显示确认页。
 
-### 5.10 日志和报告
+此处为设备本地服务，不是本仓库的只读云看板接口。
+
+### 5.8 日志和事件
 
 系统保存：
 
 - 采样摘要
 - 告警事件
-- AI 诊断结果
 - 配置变更记录
-- 手册解析记录
 - 网络调用错误
 - 用户确认记录
 
@@ -594,17 +454,17 @@ H750B-DK 通过以太网加入局域网后，可以提供一个轻量 Web 配置
 ```json
 {
   "log_id": "log_0001",
-  "type": "diagnosis",
+  "type": "alarm",
   "event_id": "evt_0001",
   "device_id": "motor_temp_01",
-  "diagnosis_summary": "电机温度持续超过阈值",
+  "message": "电机温度持续超过阈值",
   "created_at": "2026-06-23T10:31:00+08:00",
-  "source": "mimo",
+  "source": "rule_engine",
   "saved": true
 }
 ```
 
-### 5.11 MQTT-only OTA 固件升级
+### 5.9 MQTT-only OTA 固件升级
 
 OTA 用于远程维护 VelaGuard 固件，但不能破坏独立网关和本地安全闭环。OTA 协议采用 MQTT-only 拉取式分片传输，不在 H750B-DK 主流程中引入 HTTPS 固件下载器。
 
@@ -641,11 +501,11 @@ OTA 约束：
 
 - 工业风格，清晰、克制、信息密度适中。
 - 首页必须一眼看出设备是否正常。
-- 告警和诊断必须比配置入口更突出。
+- 告警必须比配置入口更突出。
 - 不在屏幕上堆长说明文字。
 - 所有危险动作必须有二次确认。
 - 触摸控件尺寸要适合 4.3 寸屏。
-- 状态颜色统一：绿色正常、黄色预警、红色告警、灰色离线、蓝色联网/AI。
+- 状态颜色统一：绿色正常、黄色预警、红色告警、灰色离线、蓝色联网。
 
 ### 6.2 页面结构
 
@@ -654,10 +514,8 @@ OTA 约束：
   ├─ 设备详情
   ├─ 实时趋势
   ├─ 告警详情
-  │   └─ AI 诊断
   ├─ 添加传感器
-  │   ├─ 自然语言输入
-  │   ├─ 手册导入结果
+  │   ├─ 参数编辑
   │   └─ 配置预览
   ├─ 日志
   ├─ 系统状态
@@ -668,7 +526,7 @@ OTA 约束：
 
 显示内容：
 
-- 顶部状态栏：网络、MiMo、采集、音频、时间。
+- 顶部状态栏：网络、MQTT、采集、音频、时间。
 - 设备状态卡片：设备名、当前值、状态、更新时间。
 - 告警摘要：当前告警数量、最高告警等级。
 - 快捷操作：添加传感器、查看日志、静音。
@@ -677,7 +535,7 @@ OTA 约束：
 
 ```text
 ┌────────────────────────────────────┐
-│ VelaGuard   NET OK  MiMo OK  10:30 │
+│ VelaGuard   NET OK  MQTT OK  10:30 │
 ├────────────────────────────────────┤
 │ Cooling Pump Motor                 │
 │ Temp 82.4 C       WARNING          │
@@ -685,7 +543,7 @@ OTA 约束：
 ├────────────────────────────────────┤
 │ Alarms: 1       Highest: Warning   │
 ├───────────┬───────────┬────────────┤
-│ Details   │ Diagnose  │ Add Sensor │
+│ Details   │ Logs      │ Add Sensor │
 └───────────┴───────────┴────────────┘
 ```
 
@@ -718,39 +576,11 @@ OTA 约束：
 - 当前值和阈值。
 - 持续时间。
 - 历史值片段。
-- 按钮：AI 诊断、静音、标记处理。
+- 按钮：静音、标记处理。
 
-### 6.7 AI 诊断页
+### 6.7 添加传感器页
 
-显示内容：
-
-- 现象摘要。
-- 风险等级。
-- 可能原因。
-- 建议排查步骤。
-- 可信度。
-- 按钮：保存报告、播放语音、确认已处理。
-
-### 6.8 添加传感器页
-
-输入方式：
-
-- 自然语言添加。
-- 从手册添加。
-- 手动添加。
-
-自然语言输入页：
-
-```text
-┌────────────────────────────────────┐
-│ Add Sensor                         │
-├────────────────────────────────────┤
-│ "添加一台温湿度传感器..."          │
-│                                    │
-├────────────────────────────────────┤
-│ [Generate Config] [Cancel]         │
-└────────────────────────────────────┘
-```
+输入方式：手动填写通信参数、寄存器、采样周期和告警阈值。
 
 配置预览页必须显示：
 
@@ -770,13 +600,13 @@ OTA 约束：
 - 返回修改
 - 放弃
 
-### 6.9 系统状态页
+### 6.8 系统状态页
 
 显示内容：
 
 - IP 地址
-- AI Bridge / MiMo 状态
-- 最近一次 API 延迟
+- MQTT 状态
+- 最近一次上报时间
 - RS485 状态
 - 文件系统状态
 - 音频状态
@@ -798,27 +628,22 @@ OTA 约束：
 → 规则引擎持续判断
 ```
 
-### 7.2 异常诊断流程
+### 7.2 异常告警流程
 
 ```text
 采样值异常
 → 规则引擎生成告警事件
 → UI 弹出告警
 → 播放本地告警音
-→ 用户点击 AI 诊断
-→ Agent 读取事件、历史、配置、手册摘要
-→ 通过 MQTT 请求 AI Bridge
-→ 返回结构化诊断
-→ UI 显示诊断页
-→ 用户保存或播放语音
+→ 保存告警事件和历史值
+→ 通过 MQTT 上报告警
+→ 云看板保存并展示事件
 ```
 
-### 7.3 自然语言添加传感器流程
+### 7.3 手动添加传感器流程
 
 ```text
-用户输入自然语言
-→ 网关通过 MQTT 请求 AI Bridge
-→ MiMo 返回候选配置
+用户填写传感器参数
 → 网关校验配置
 → UI 展示配置预览
 → 用户点击测试读取
@@ -828,31 +653,23 @@ OTA 约束：
 → 传感器进入采集循环
 ```
 
-### 7.4 上传手册添加传感器流程
+### 7.4 云看板点表同步流程
 
 ```text
-手机打开网关 Web 页面
-→ 上传传感器手册
-→ 云端解析手册
-→ 返回寄存器表
-→ 用户自然语言选择采集项
-→ MiMo 生成配置
-→ 网关校验
-→ 屏幕预览
-→ 用户确认
-→ 开始采集
+设备启动或点表变更
+→ 发布 retained point_table JSON
+→ 云看板校验并保存点表
+→ 浏览器展示点位名称、单位和寄存器
+→ 后续 telemetry 按点位 ID 关联实时值
 ```
 
-### 7.5 音频播报流程
+### 7.5 本地音频提醒流程
 
 ```text
 告警触发
 → 播放本地提示音
-→ AI 诊断完成
-→ 用户点击播放诊断
-→ 网关通过 MQTT 请求 TTS 音频
-→ AI Bridge 通过 MQTT 返回短音频或音频分片
-→ 网关接收后播放
+→ 用户可静音
+→ 告警恢复后停止提示
 ```
 
 ### 7.6 MQTT-only OTA 流程
@@ -920,18 +737,18 @@ NET_DEGRADED
 
 RJ45 和 Wi-Fi 分别维护退避状态。RJ45 检测到物理 link 恢复时，可以立即触发一次连接尝试；如果失败，再进入退避。
 
-### 8.3 MQTT 与 AI Bridge
+### 8.3 MQTT 与云看板
 
-VelaGuard 不直接把复杂 MiMo HTTPS API 暴露给板端业务逻辑，而是通过 MQTT Broker 请求云服务器 AI Bridge。
+VelaGuard 向 MQTT Broker 上报数据，云看板使用独立只读账号订阅。
 
 ```text
 VelaGuard
   ↓ MQTT
 MQTT Broker
   ↓ MQTT
-AI Bridge
-  ↓ HTTPS
-MiMo API / TTS / ASR / 手册解析服务
+云看板采集服务
+  ↓ SQLite / HTTP
+浏览器
 ```
 
 板端需要支持：
@@ -942,49 +759,36 @@ MiMo API / TTS / ASR / 手册解析服务
 - MQTT QoS 0/1
 - MQTT retained / LWT 状态
 - 正式环境 MQTT over TLS；测试环境可在受控局域网使用明文 MQTT
-- JSON 请求/响应
+- JSON 数据上报
 - 超时处理
 - 重试
 - 证书、用户名、密码或设备 Token 配置
-- API 调用日志
+- 上报与连接日志
 
 推荐 Topic：
 
 ```text
 vg/{device_id}/telemetry
 vg/{device_id}/alarm
-vg/{device_id}/ai/request
-vg/{device_id}/ai/response/{req_id}
-vg/{device_id}/tts/request
-vg/{device_id}/tts/response/{req_id}
-vg/{device_id}/voice/start
-vg/{device_id}/voice/chunk/{session_id}
-vg/{device_id}/voice/end/{session_id}
-vg/{device_id}/voice/result/{session_id}
-vg/{device_id}/ota/offer
-vg/{device_id}/ota/accept
-vg/{device_id}/ota/chunk/request
-vg/{device_id}/ota/chunk/data
-vg/{device_id}/ota/progress
-vg/{device_id}/ota/result
-vg/{device_id}/ota/confirm
-vg/{device_id}/config/candidate
+vg/{device_id}/point_table
 vg/{device_id}/status
 ```
 
-### 8.4 MiMo 调用类型
+### 8.4 云端只读 HTTP API
 
-调用场景：
+```text
+GET /api/devices
+GET /api/devices/{id}
+GET /api/devices/{id}/history?point={point_id}&minutes=60
+GET /api/alarms
+GET /api/messages
+```
 
-- 自然语言生成传感器配置。
-- 手册寄存器表解释。
-- 异常诊断。
-- 巡检报告。
-- TTS 文本生成或音频生成请求。
+云看板没有写接口。具体字段和查询上限见 [docs/dashboard-api.md](docs/dashboard-api.md)。
 
 ### 8.5 本地 Web API
 
-用于手机远程访问。
+由设备端提供，用于手机局域网访问，不属于本仓库云看板。
 
 示例接口：
 
@@ -992,9 +796,6 @@ vg/{device_id}/status
 GET  /api/status
 GET  /api/sensors
 GET  /api/alarms
-POST /api/sensors/nl-generate
-POST /api/manuals/upload
-POST /api/diagnosis/run
 POST /api/audio/play
 ```
 
@@ -1044,20 +845,12 @@ OTA Offer 至少包含：
     sensors.json
     network.json
     rules.json
-  skills/
-    industrial_fault_diagnosis.md
-    sensor_config_generator.md
-  manuals/
-    manual_index.json
-    profiles/
   logs/
     events.log
-    diagnosis.log
     api.log
   audio/
     alert_warning.wav
     alert_critical.wav
-    tts_cache.wav
   ota/
     staging/
     manifest.json
@@ -1086,59 +879,18 @@ OTA Offer 至少包含：
 - 新固件自检通过前，旧固件必须仍可回滚。
 - OTA 写入优先级低于 Modbus 采集、告警 UI 和本地日志。
 
-## 10. Skill 设计
+## 10. 云看板部署与存储
 
-### 10.1 工业异常诊断 Skill
+本仓库通过 `python -m dashboard` 或 `vg-dashboard` 启动采集服务和网页。
 
-文件名：
+- `MQTT_HOST`、`MQTT_PORT` 和凭据设置 Broker 连接。
+- `MQTT_TLS` 与证书路径设置 MQTTS；不提供跳过证书验证的开关。
+- `HTTP_HOST`、`HTTP_PORT` 设置只读网页和 API 的监听地址。
+- `DB_PATH` 指定 SQLite 文件，保存设备、点表、遥测、告警和原始报文。
+- 浏览器不直连 MQTT Broker，不接触 Broker 凭据。
+- 生产环境需另配 HTTPS、HTTP 访问控制、Broker ACL 和数据库备份。
 
-```text
-/data/velaguard/skills/industrial_fault_diagnosis.md
-```
-
-用途：
-
-- 根据传感器事件、历史数据、阈值和设备说明生成诊断建议。
-
-输出格式必须是 JSON：
-
-```json
-{
-  "diagnosis_summary": "",
-  "risk_level": "low|medium|high",
-  "possible_causes": [],
-  "recommended_actions": [],
-  "need_shutdown": false,
-  "confidence": 0.0
-}
-```
-
-### 10.2 传感器配置生成 Skill
-
-文件名：
-
-```text
-/data/velaguard/skills/sensor_config_generator.md
-```
-
-用途：
-
-- 将自然语言和手册寄存器表转换为传感器配置。
-
-输出格式必须是 JSON：
-
-```json
-{
-  "device_id": "",
-  "name": "",
-  "protocol": "modbus_rtu",
-  "slave_addr": 1,
-  "serial": {},
-  "registers": [],
-  "poll_interval_ms": 2000,
-  "rules": []
-}
-```
+本地演示与环境变量说明见 [README.md](README.md)。开发 Compose 的数据库使用临时存储，不能替代生产持久卷。
 
 ## 11. 安全设计
 
@@ -1146,7 +898,7 @@ OTA Offer 至少包含：
 
 安全原则：
 
-- AI 只生成建议，不直接执行。
+- 云看板只读，不执行设备控制。
 - 写入配置必须人工确认。
 - 控制设备必须二次确认。
 - 高风险操作默认禁用。
@@ -1156,14 +908,13 @@ OTA Offer 至少包含：
 
 需要保护：
 
-- AI Bridge 设备 Token
+- MQTT 设备 Token
 - 网络配置
 - 设备配置
-- 用户上传手册
-- 诊断日志
+- 告警日志与遥测历史
 - OTA 签名公钥、升级 manifest 和回滚状态
 
-API Key 不应显示在 UI 中。日志中不记录完整密钥。
+凭据不应显示在 UI 中。日志中不记录完整密钥。
 
 ### 11.3 工业安全
 
@@ -1199,9 +950,7 @@ OTA 安全要求：
 - RJ45 未连接或 DHCP 失败。
 - ESP-01 Wi-Fi 未连接或云服务器不可达。
 - MQTT 断开。
-- MiMo / AI Bridge 不可用。
-- 手册解析不可用。
-- TTS 不可用。
+- 云看板采集服务不可达。
 
 系统行为：
 
@@ -1210,10 +959,9 @@ OTA 安全要求：
 - 屏幕告警继续。
 - 本地告警音继续。
 - 配置和日志继续读写。
-- 使用预置诊断模板。
 - 显示网络状态异常。
 - 进入自动重连状态，并按指数退避重试。
-- 将需要联网的诊断、TTS、手册解析请求标记为 pending 或 failed。
+- 关键事件进入本地 pending 队列，网络恢复后补发。
 
 ### 12.2 Modbus 失败
 
@@ -1230,7 +978,7 @@ OTA 安全要求：
 - 达到超时阈值后生成离线告警。
 - 在测试读取页提示可能原因。
 
-### 12.3 AI 输出非法
+### 12.3 配置数据非法
 
 表现：
 
@@ -1243,7 +991,7 @@ OTA 安全要求：
 
 - 拒绝应用。
 - 显示错误原因。
-- 允许重新生成。
+- 允许修改后重新校验。
 - 保存调试日志。
 
 ### 12.4 音频失败
@@ -1251,7 +999,7 @@ OTA 安全要求：
 表现：
 
 - 音频设备初始化失败。
-- TTS 下载失败。
+- 本地音频文件缺失。
 - 文件格式不支持。
 
 系统行为：
@@ -1281,9 +1029,9 @@ OTA 安全要求：
 
 ## 13. 典型演示场景
 
-### 13.1 场景一：自然语言添加温度传感器
+### 13.1 场景一：手动添加温度传感器
 
-用户输入：
+用户填写：
 
 ```text
 添加一台 Modbus 温度传感器，从站地址 1，寄存器 40001，倍率 0.1，超过 70 度报警。
@@ -1291,17 +1039,11 @@ OTA 安全要求：
 
 系统展示配置预览，测试读取成功后开始采集。
 
-### 13.2 场景二：上传手册添加采集项
+### 13.2 场景二：云看板自动同步点表
 
-用户通过手机上传传感器手册，然后输入：
+设备上报温度和湿度点表后，云看板自动显示点位名称、单位、寄存器和阈值。随后上报的遥测值按点位 ID 更新，无需在云看板中重复配置。
 
-```text
-根据手册采集温度和湿度，温度超过 70 度报警，湿度低于 30% 提醒。
-```
-
-系统从手册解析结果中找到寄存器表，生成配置，并要求用户确认。
-
-### 13.3 场景三：异常发生并 AI 诊断
+### 13.3 场景三：异常发生并记录告警
 
 传感器温度升高至 82.4 C。
 
@@ -1310,9 +1052,8 @@ OTA 安全要求：
 - 首页状态变为黄色或红色。
 - 播放告警音。
 - 弹出告警详情。
-- 用户点击 AI 诊断。
-- MiMo 返回原因和排查建议。
-- 用户保存诊断报告。
+- 设备保存告警日志并通过 MQTT 上报。
+- 云看板显示活动告警和历史趋势。
 
 ### 13.4 场景四：网络失败降级
 
@@ -1321,9 +1062,9 @@ OTA 安全要求：
 系统行为：
 
 - 仍然完成本地告警。
-- 提示 MiMo 不可用。
-- 使用本地模板生成基础建议。
-- 网络恢复后可补充 AI 诊断。
+- 提示网络离线。
+- 保存关键事件到本地 pending 队列。
+- 网络恢复后补发事件，云看板保留设备原始时间。
 
 ### 13.5 场景五：MQTT-only OTA 升级
 
@@ -1346,10 +1087,9 @@ OTA 安全要求：
 - LVGL HMI。
 - Modbus 采集模块。
 - 规则引擎。
-- MQTT AI Bridge 客户端。
-- 自然语言传感器配置功能。
-- 手册解析对接功能。
-- AI 诊断 Skill。
+- MQTT 数据上报客户端。
+- 只读云看板与接口文档。
+- 手动传感器配置与测试读取功能。
 - 音频提醒功能。
 - MQTT-only OTA 功能。
 - 本地 Web 配置页面。
@@ -1366,16 +1106,16 @@ OTA 安全要求：
 - H750B-DK 不依赖电脑即可运行主流程。
 - 可通过 RS485 读取至少一个 Modbus 设备或模拟器。
 - 可通过 RJ45 或 ESP-01 Wi-Fi 连接 MQTT 云服务器。
-- 可通过自然语言生成传感器配置。
+- 可手动编辑并校验传感器配置。
 - 可展示配置预览并要求用户确认。
 - 可检测超阈值、离线、突变异常。
 - 异常发生时 UI 主动告警。
-- 可生成结构化 AI 诊断报告。
-- 可保存告警和诊断日志。
+- 云看板可自动同步点表、展示实时值和趋势。
+- 可保存并查看告警日志。
 - 可播放本地告警音。
 - 可通过 MQTT-only OTA 接收升级 offer、拉取 chunk、校验签名并支持回滚。
-- MiMo 或网络失败时，本地采集和告警不受影响。
-- AI 不能绕过本地确认直接修改配置或控制设备。
+- 网络或云看板失败时，本地采集和告警不受影响。
+- 云看板不能修改配置、控制设备或确认告警。
 
 ## 16. 已确认架构决策补充
 
@@ -1407,7 +1147,7 @@ token_v2 = HMAC(PRODUCT_AUTH_SECRET_V2, "velaguard:mqtt:v2:" + device_id)
 
 云端可在迁移期同时接受新旧版本；单台设备泄露时通过 Broker denylist 禁止该 `device_id` 登录。
 
-### 16.2 Broker、AI Bridge 与 MQTT 权限
+### 16.2 Broker、云看板与 MQTT 权限
 
 通信链路固定为：
 
@@ -1416,19 +1156,19 @@ VelaGuard
   ↓ MQTT
 MQTT Broker
   ↓ MQTT
-AI Bridge
-  ↓ HTTPS
-MiMo API / TTS / ASR / 手册解析服务
+云看板采集服务
+  ↓ SQLite / HTTP
+浏览器
 ```
 
-VelaGuard 与 AI Bridge 不直接互连，二者都是 MQTT Broker 的客户端。
+VelaGuard 与云看板采集服务不直接互连，二者都是 MQTT Broker 的客户端。
 
 正式环境策略：
 
 - MQTT over TLS。
 - 每设备独立账号或 token。
 - Broker ACL 限制设备只能访问自己的 `vg/{device_id}/...` topic。
-- AI Bridge 使用独立账号，只允许订阅请求 topic、发布响应 topic。
+- 云看板使用独立账号，只允许订阅状态、遥测、告警和点表 topic，不允许发布设备消息。
 - 测试环境可在局域网使用明文 MQTT，但量产固件应关闭。
 
 Topic 根路径使用：
@@ -1447,14 +1187,12 @@ QoS 策略：
 | `trend` | 0 | 高频趋势数据，优先保持实时性 |
 | `status` | 0 | 当前状态，允许用 retained 保存最新值 |
 | `alarm` | 1 | 告警事件需要至少送达一次 |
-| `ai/request` / `ai/response` | 1 | AI 请求响应需要可重试 |
+| `point_table` | 1 | 当前点表快照，retained 供新订阅者同步 |
 | `config/candidate` | 1 | 候选配置不能静默丢失 |
-| `tts/request` / `tts/response` | 1 | TTS 任务需要明确结果 |
-| `voice/start` / `voice/chunk` / `voice/end` / `voice/result` | 1 | 语音上传需要分片确认 |
 | `ota/offer` / `ota/chunk` / `ota/result` / `ota/confirm` | 1 | OTA 控制与分片需要可靠送达 |
 | `ack/confirm` | 1 | 用户确认类事件需要可靠送达 |
 
-Retained 只用于当前状态类 topic，例如 `vg/{device_id}/status`。请求、响应、事件、遥测、趋势数据不使用 retained。
+Retained 只用于当前状态类 topic，包括 `vg/{device_id}/status` 和 `vg/{device_id}/point_table`。请求、响应、事件、遥测、趋势数据不使用 retained。云看板只消费四类上报，表中的候选配置、OTA、确认事件属于设备端及配套服务的外部协议。
 
 MQTT 会话策略：
 
@@ -1492,41 +1230,18 @@ ID 体系：
 
 网络恢复后不回改历史事件时间；云端另存 `received_ts_ms`。
 
-### 16.4 AI Bridge 超时、重试与大 payload
+### 16.4 MQTT 重试与报文大小
 
-所有 AI 请求必须包含：
+云看板接收 UTF-8 JSON，单条报文上限为 64 KiB。非 JSON、非法字段、设备身份不匹配或超限报文进入隔离缓冲，不进入业务表。
 
-- `req_id`
-- `device_id`
-- `created_ts_ms`
-- `type`
-- `payload_hash`
+重复上报处理：
 
-AI Bridge 使用 `req_id + payload_hash` 做幂等键。重复请求的处理方式：
+- 状态和点表作为快照同步。
+- 同一未恢复告警重复 `raised` 只刷新最后出现时间和报文，不新增触发事件。
+- `cleared` 关闭活动告警；没有活动告警时仅记录恢复事件。
+- 关键事件依赖板端 pending 队列补发，不能把 clean session 当作持久事件队列。
 
-- 已完成：重发同一个 response。
-- 处理中：返回或发布 `status=processing`。
-- 已失败：按失败类型决定是否允许重试。
-
-推荐超时：
-
-| 任务 | 超时 |
-|---|---:|
-| 自然语言配置 | 15-30 秒 |
-| 手册解析 | 60-180 秒，优先异步任务 |
-| ASR / TTS | 15-60 秒，按音频长度调整 |
-
-MQTT 只承载控制 JSON、小文本和短结果。音频、PDF、图片、完整手册不塞进单条 MQTT。
-
-H750B-DK 录音上传采用分片：
-
-- 每片 4KB 或 8KB。
-- QoS 1。
-- payload 优先使用二进制。
-- topic 示例：`vg/{device_id}/voice/chunk/{session_id}/{seq}`。
-- metadata 包含 `total_chunks`、`sha256`、`duration_ms`、`codec`。
-
-手册/PDF 推荐由手机或 Web 上传到云端，设备只接收解析后的 `manual_profile`。
+MQTT 普通上报不承载完整音频、PDF、图片或固件。
 
 OTA 固件包属于例外的大 payload，但仍不使用板端 HTTPS 下载。OTA 采用设备拉取式 MQTT 分片，每片 4KB 或 8KB，并限制 inflight chunk 数量。
 
@@ -1559,7 +1274,7 @@ ESP-01 约束：
 → 本地音频告警
 → network_manager
 → MQTT
-→ AI Bridge / 远程配置 / TTS / ASR
+→ 状态、遥测、告警和点表上报
 ```
 
 增强模块失败不能拖垮本地安全闭环。

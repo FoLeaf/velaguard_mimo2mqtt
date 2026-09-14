@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,7 +19,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # MQTT connection (same env conventions as the AI Bridge).
+    # MQTT connection.
     mqtt_host: str = Field(default="localhost", alias="MQTT_HOST")
     mqtt_port: int = Field(default=1883, alias="MQTT_PORT")
     mqtt_username: str | None = Field(default=None, alias="MQTT_USERNAME")
@@ -46,8 +47,17 @@ class Settings(BaseSettings):
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
+    @field_validator(
+        "mqtt_ca_path", "mqtt_client_cert_path", "mqtt_client_key_path", mode="before"
+    )
+    @classmethod
+    def _normalize_certificate_path(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
     @model_validator(mode="after")
-    def _validate_ranges(self) -> "Settings":
+    def _validate_ranges(self) -> Settings:
         if not 1 <= self.mqtt_port <= 65535:
             raise ValueError("MQTT_PORT must be between 1 and 65535")
         if not 1 <= self.http_port <= 65535:
@@ -61,6 +71,10 @@ class Settings(BaseSettings):
         if self.cleanup_interval_s <= 0:
             raise ValueError("CLEANUP_INTERVAL_S must be positive")
         if self.mqtt_tls:
+            if bool(self.mqtt_client_cert_path) != bool(self.mqtt_client_key_path):
+                raise ValueError(
+                    "MQTT_CLIENT_CERT_PATH and MQTT_CLIENT_KEY_PATH must be configured together"
+                )
             for name, value in (
                 ("MQTT_CA_PATH", self.mqtt_ca_path),
                 ("MQTT_CLIENT_CERT_PATH", self.mqtt_client_cert_path),

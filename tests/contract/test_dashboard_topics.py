@@ -59,7 +59,7 @@ def test_parse_device_topic_valid(topic: str, expected: tuple[str, str]) -> None
 @pytest.mark.parametrize(
     "topic",
     [
-        "vg/dev01/ai/request",  # deeper path belongs to the AI Bridge
+        "vg/dev01/status/extra",  # deeper path is outside the dashboard contract
         "other/dev01/status",  # wrong root
         "vg/status",  # missing device_id
         "vg//status",  # empty device_id
@@ -70,5 +70,5 @@ def test_parse_device_topic_invalid(topic: str) -> None:
     assert topics.parse_device_topic(topic) is None
 
 
-def test_payload_cap_aligned_with_bridge_rule() -> None:
+def test_payload_cap_is_64_kib() -> None:
     assert topics.MAX_PAYLOAD_BYTES == 64 * 1024

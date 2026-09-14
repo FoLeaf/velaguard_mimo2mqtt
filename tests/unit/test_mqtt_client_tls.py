@@ -1,4 +1,4 @@
-"""Unit tests for MqttBridgeClient TLS wiring (no network)."""
+"""Unit tests for MqttClient TLS wiring (no network)."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ from unittest.mock import patch
 
 import paho.mqtt.client as mqtt
 
-from ai_bridge.transport.mqtt.client import MqttBridgeClient
+from dashboard.transport.mqtt import MqttClient
 
 
-def _client(**kwargs: object) -> MqttBridgeClient:
-    return MqttBridgeClient(
+def _client(**kwargs: object) -> MqttClient:
+    return MqttClient(
         host="localhost",
         port=8883,
-        client_id="ai-bridge-test",
+        client_id="vg-dashboard-test",
         **kwargs,  # type: ignore[arg-type]
     )
 

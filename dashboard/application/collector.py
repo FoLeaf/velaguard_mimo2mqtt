@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from ai_bridge.observability.logging import get_logger
 from dashboard.application import ingest
 from dashboard.application.ingest import IngestError, Parsed
 from dashboard.contracts import topics
+from dashboard.observability.logging import get_logger
 from dashboard.storage.db import DashboardStore, now_ms
 
 logger = get_logger(__name__)

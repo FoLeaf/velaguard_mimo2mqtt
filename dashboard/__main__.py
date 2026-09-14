@@ -10,12 +10,12 @@ import signal
 import sys
 import threading
 
-from ai_bridge.observability.logging import configure_logging, get_logger
-from ai_bridge.transport.mqtt.client import run_until_stopped
 from dashboard.application.collector import Collector
 from dashboard.configuration.settings import Settings, load_settings
 from dashboard.http.server import DashboardHttpServer
+from dashboard.observability.logging import configure_logging, get_logger
 from dashboard.storage.db import DashboardStore
+from dashboard.transport.mqtt import run_until_stopped
 from dashboard.transport.subscriber import build_subscriber
 
 logger = get_logger(__name__)

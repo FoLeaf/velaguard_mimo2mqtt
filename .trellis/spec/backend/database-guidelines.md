@@ -1,81 +1,53 @@
 # Database and Persistence Guidelines
 
-> Behavioral persistence contracts for the VelaGuard cloud backend.
+## Storage Owner
 
----
+`dashboard/storage/db.py` owns the SQLite schema and `DashboardStore`.
+It uses stdlib `sqlite3` with `check_same_thread=False` and an `RLock` around
+shared-connection operations. Do not introduce an ORM or alternate store
+without an explicit design decision.
 
-## Current State
+`DB_PATH` defaults to `dashboard.db`; reopening the same file preserves state.
+The development Compose stack puts the database in tmpfs and is deliberately
+temporary. It must not be described as durable across container recreation.
 
-No database, ORM, query library, schema language, or migration tool is confirmed for production. Do not treat any storage technology as a production requirement.
+## Tables and Transitions
 
-**First slice:** `ai_bridge.persistence.idempotency.InMemoryIdempotencyStore` is the only store. It is process-local, thread-safe, and **explicitly disposable**. README and operator docs must say restart clears dedupe/replay state. It must not be described as production restart-safe behavior.
+| Table | Role |
+|---|---|
+| `devices` | Latest raw status and cloud receipt time per device |
+| `points` | Current device point set, including full `spec_json` |
+| `point_syncs` | Full JSON snapshot history with sync sequence |
+| `telemetry_latest` | Latest sample per device/point |
+| `telemetry_history` | Append-only received sample history |
+| `alarms` | Current alarm state per device/alarm key |
+| `alarm_events` | Raised/cleared transitions with original payload and time |
+| `raw_messages` | Bounded recent traffic including quarantine reasons |
 
-## AI Request Idempotency
+The collector passes validated records to storage. State snapshots replace or
+upsert current state. Point-table syncs and telemetry history can have repeated
+records; do not claim all writes are deduplicated.
 
-The AI Bridge uses `req_id + payload_hash` as its idempotency key. Persist or otherwise durably coordinate enough state to distinguish:
+Alarm transitions:
 
-- Completed: publish the same response again.
-- Processing: return or publish `status=processing`.
-- Failed: retain the failure classification needed to decide whether retry is allowed.
+- First `raised`: open the alarm and append an event.
+- Duplicate `raised` while open: refresh last-seen/payload only.
+- `cleared` while open: close the alarm and append an event.
+- Orphan `cleared`: append an event only.
+- A later `raised` after clearing starts a new occurrence.
 
-Preserve the confirmed request fields: `req_id`, `device_id`, `created_ts_ms`, `type`, and `payload_hash`. Store response data or a reproducible response reference when exact replay is required.
+## Identity, Queries and Retention
 
-Idempotency claims must be atomic. Two deliveries of the same key must not start duplicate provider work. The exact unique constraint, transaction, compare-and-set, or locking mechanism depends on the selected persistence engine and must be documented with that choice.
+- Scope SQL by `device_id`; use bound SQL parameters.
+- Preserve original IDs and device time in stored payloads.
+- Add `received_ts_ms` without overwriting source `ts_ms`/`uptime_ms`/`time_quality`.
+- Keep current state separate from historical transitions and raw traffic.
+- HTTP history queries cap at 1440 minutes and 2000 points; raw queries cap at 500.
+- `cleanup(retention_hours, message_buffer_limit, alarm_event_limit)` trims
+  telemetry history, raw traffic and alarm events. Point-sync history and
+  current state are not removed by this cleanup.
+- The current runtime schedules one cleanup timer; recurring maintenance,
+  migrations and backup/restore policy need separate production work.
 
-## IDs and Time
-
-- Preserve device-generated `event_id` and `alarm_id`; do not replace them with cloud IDs on ingestion.
-- Preserve `ts_ms`, `uptime_ms`, and `time_quality` exactly as received.
-- Store cloud receipt time separately as `received_ts_ms`.
-- Never rewrite historical device time after network recovery.
-- Keep enough correlation data to trace retries and duplicates across process restarts.
-
-## Security State
-
-The cloud must support versioned device-token migration and a denylist for a leaked `device_id`. The selected persistence or control-plane design must define consistency, auditability, and update propagation before production use.
-
-Never store plaintext product authentication secrets, MiMo API keys, OTA private keys, or complete device tokens in ordinary records or logs. Secret-storage technology remains undecided.
-
-## Optional Service Data
-
-Persist these only when the corresponding service is implemented:
-
-- Manual upload metadata, `manual_id`, parse state, and `manual_profile`/`sensor_profile` references.
-- TTS/ASR session metadata and chunk checksums; large binary data needs a deliberately selected artifact/blob mechanism.
-- OTA offer metadata, image checksum/signature metadata, chunk-serving progress, and result/confirmation events.
-- Allowed structured device events and key error/warn summaries. Do not ingest or persist complete `latest.log` by default.
-
-## Query and Update Rules
-
-- Look up AI work by the complete idempotency key, not `req_id` alone.
-- Scope device-owned data by `device_id` at every access boundary.
-- Separate current state from retry-attempt history so operators can reconstruct transitions.
-- Bound list and history queries; never load unbounded event, manual, audio, log, or OTA collections.
-- Store hashes and metadata needed to verify chunks and artifacts rather than trusting transport completion alone.
-- Record completion state before or atomically with making a replayable response visible.
-
-## Migrations and Compatibility
-
-Migration conventions cannot be fixed until persistence technology is selected. The first durable implementation must document:
-
-1. Schema ownership and versioning.
-2. Forward and rollback migration commands.
-3. Code/schema deployment ordering.
-4. Backfill behavior for idempotency and security records.
-5. Backup, restore, retention, and deletion policy.
-
-Protocol compatibility is independent of database migrations: confirmed MQTT fields and topic rules remain stable unless the root contract is intentionally revised.
-
-## Forbidden Assumptions
-
-- Do not introduce an ORM merely because this file is named database guidelines.
-- Do not infer SQL, PostgreSQL, Redis, document storage, or any cloud-managed product.
-- Do not use provider request IDs as substitutes for VelaGuard `req_id`.
-- Do not mark a request completed before its replayable response is safely recorded.
-- Do not silently rerun a failed non-retryable request.
-- Do not put PDFs, images, complete manuals, audio, or firmware into ordinary MQTT JSON records.
-
-## Source References
-
-- `VelaGuard_项目手册.md`: sections 11.2, 16.1, 16.3-16.4, 16.7, and 16.9.
-- `VelaGuard_推进方案.md`: sections 6.2, 8.2, 16.2, 16.5, and 16.9-16.10.
+Schema changes require explicit compatibility, backup and rollback decisions.
+Never store credentials or private key material in ordinary domain records.

@@ -1,4 +1,4 @@
-"""paho-mqtt based AI Bridge client with reconnect resubscribe."""
+"""paho-mqtt client with explicit subscriptions and reconnect handling."""
 
 from __future__ import annotations
 
@@ -11,8 +11,7 @@ from typing import Any
 
 import paho.mqtt.client as mqtt
 
-from ai_bridge.contracts.topics import AI_QOS, AI_RETAIN, REQUEST_TOPIC_FILTER
-from ai_bridge.observability.logging import get_logger
+from dashboard.observability.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -20,15 +19,14 @@ MessageHandler = Callable[[str, bytes], None]
 SubscribeFilter = tuple[str, int]
 
 
-class MqttBridgeClient:
-    """Independent bridge MQTT client.
+class MqttClient:
+    """MQTT transport shared by the collector and synthetic board.
 
-    - Subscribes to ``vg/+/ai/request`` QoS 1 on connect/reconnect (or the
-      explicit ``subscribe_filters`` list when provided)
-    - Publishes responses QoS 1, retain=False
+    - Subscribes only to explicitly configured filters on connect/reconnect
+    - A publisher-only client has no subscriptions
     - clean_session / clean_start True (no durable broker session assumed)
     - Dispatches inbound messages off the network loop so in-flight work
-      cannot block processing of duplicate/other requests
+      cannot block MQTT network processing
     """
 
     def __init__(
@@ -52,14 +50,12 @@ class MqttBridgeClient:
         self._port = port
         self._keepalive = keepalive
         self._on_message = on_message
-        self._subscribe_filters: tuple[SubscribeFilter, ...] = (
-            tuple(subscribe_filters) if subscribe_filters else ((REQUEST_TOPIC_FILTER, AI_QOS),)
-        )
+        self._subscribe_filters = tuple(subscribe_filters or ())
         self._connected = threading.Event()
         self._lock = threading.RLock()
         self._executor = ThreadPoolExecutor(
             max_workers=max(1, worker_threads),
-            thread_name_prefix="ai-bridge-mqtt",
+            thread_name_prefix="dashboard-mqtt",
         )
         self._closed = False
 
@@ -116,15 +112,16 @@ class MqttBridgeClient:
     def publish_json(
         self,
         topic: str,
-        payload: dict[str, Any],
+        payload: dict[str, Any] | list[dict[str, Any]],
         *,
-        qos: int = AI_QOS,
-        retain: bool = AI_RETAIN,
-    ) -> None:
+        qos: int,
+        retain: bool,
+    ) -> mqtt.MQTTMessageInfo:
         body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
         info = self._client.publish(topic, body.encode("utf-8"), qos=qos, retain=retain)
         if info.rc != mqtt.MQTT_ERR_SUCCESS:
             logger.error("mqtt_publish_failed topic=%s rc=%s", topic, info.rc)
+        return info
 
     def is_connected(self) -> bool:
         return self._connected.is_set()
@@ -169,7 +166,7 @@ class MqttBridgeClient:
         logger.warning("mqtt_disconnected args=%s", args)
 
     def _handle_message(self, client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> None:
-        # Keep the network loop free: provider work and orchestration run in workers.
+        # Keep ingestion and storage work off the network loop.
         if self._closed:
             return
         handler = self._on_message
@@ -201,7 +198,7 @@ class MqttBridgeClient:
 
 
 def run_until_stopped(
-    client: MqttBridgeClient,
+    client: MqttClient,
     *,
     stop_event: threading.Event | None = None,
     poll_s: float = 0.5,
