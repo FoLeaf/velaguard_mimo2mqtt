@@ -228,3 +228,25 @@ Pivoted repo primary product to a read-only MQTT cloud dashboard per user reques
 ### Status
 
 [OK] **Completed**
+
+
+## Session 11: 优化云看板 UI（参考 shadcn-ui）
+<!-- trellis-session: v=2 fp=e8777f1b3014aaa8 -->
+
+**Date**: 2026-09-14
+**Task**: 优化云看板 UI（参考 shadcn-ui）
+**Branch**: `main`
+
+### Summary
+
+参考 shadcn/ui 现代设计语言全面重构美化 VelaGuard 云看板（Zinc 调色板、4 大 KPI 指标卡、状态过滤与测点搜索、现代渐变面积 SVG 趋势图、Dark/Light 主题切换、报文一键复制）。保持纯原生零构建，全量测试 122 passed，1 skipped。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b875b22` | feat(web): redesign dashboard UI referencing shadcn/ui |
+
+### Status
+
+[OK] **Completed**
