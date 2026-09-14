@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,66 +7,278 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <!-- 顶部全局导航栏 (shadcn Header) -->
   <header class="topbar">
-    <div class="brand">
-      <span class="brand-mark">VG</span>
-      <span class="brand-name">VelaGuard 云看板</span>
+    <div class="topbar-left">
+      <a href="#" class="brand" onclick="showView('devices'); return false;">
+        <span class="brand-badge">VG</span>
+        <span class="brand-name">VelaGuard 云看板</span>
+        <span class="brand-tag">MQTT Fleet</span>
+      </a>
+      <nav class="nav-tabs" aria-label="主导航">
+        <button id="nav-devices" class="nav-tab active" data-view="devices">
+          <svg class="nav-tab-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+          设备总览
+        </button>
+        <button id="nav-alarms" class="nav-tab" data-view="alarms">
+          <svg class="nav-tab-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          告警中心
+          <span id="nav-alarms-badge" class="nav-tab-badge" style="display: none;">0</span>
+        </button>
+        <button id="nav-messages" class="nav-tab" data-view="messages">
+          <svg class="nav-tab-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+          原始报文
+        </button>
+      </nav>
     </div>
-    <nav class="nav">
-      <button id="nav-devices" class="nav-btn active" data-view="devices">设备总览</button>
-      <button id="nav-alarms" class="nav-btn" data-view="alarms">告警</button>
-      <button id="nav-messages" class="nav-btn" data-view="messages">原始报文</button>
-    </nav>
-    <div id="conn-badge" class="conn-badge conn-unknown">检测中…</div>
+    <div class="topbar-right">
+      <div id="conn-badge" class="conn-pill conn-unknown">
+        <span class="pulse-dot"></span>
+        <span id="conn-text">检测中…</span>
+      </div>
+      <button id="theme-toggle" class="btn-icon" title="切换暗色/亮色模式" aria-label="Toggle theme">
+        <svg id="theme-icon-sun" style="display:none;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+        <svg id="theme-icon-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+      </button>
+    </div>
   </header>
 
   <main id="main">
+    <!-- 视图 1：设备总览 -->
     <section id="view-devices" class="view">
+      <!-- 4 大 KPI 统计卡片 -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-label">接入设备总数</span>
+            <div class="metric-icon-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+            </div>
+          </div>
+          <div class="metric-value" id="kpi-total-devices">0</div>
+          <div class="metric-sub" id="kpi-device-sub">在线 0 · 离线 0</div>
+          <div class="metric-progress">
+            <div id="kpi-online-progress" class="metric-progress-bar" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-label">活动告警</span>
+            <div class="metric-icon-wrap" style="color: var(--status-crit);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+          </div>
+          <div class="metric-value" id="kpi-active-alarms">0</div>
+          <div class="metric-sub" id="kpi-alarm-sub">系统状态正常</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-label">同步点位数</span>
+            <div class="metric-icon-wrap" style="color: var(--brand-blue);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20v-6M6 20V10M18 20V4"/></svg>
+            </div>
+          </div>
+          <div class="metric-value" id="kpi-total-points">0</div>
+          <div class="metric-sub" id="kpi-points-sub">通过点表自动同步</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-label">报文采集吞吐</span>
+            <div class="metric-icon-wrap" style="color: var(--status-ok);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            </div>
+          </div>
+          <div class="metric-value" id="kpi-messages-count">0</div>
+          <div class="metric-sub" id="kpi-messages-sub">0 条隔离报文</div>
+        </div>
+      </div>
+
+      <!-- 搜索与筛选工具条 -->
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div class="search-input-wrap">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" id="device-search-input" class="input" placeholder="搜索设备 ID 或状态..." />
+          </div>
+          <div class="filter-pills" id="device-filter-pills">
+            <button class="filter-pill active" data-filter="all">全部</button>
+            <button class="filter-pill" data-filter="online">在线</button>
+            <button class="filter-pill" data-filter="offline">离线</button>
+            <button class="filter-pill" data-filter="alarm">告警中</button>
+          </div>
+        </div>
+        <div class="toolbar-right">
+          <span id="device-count-info" class="meta-label">共 0 台设备</span>
+        </div>
+      </div>
+
+      <!-- 设备网格卡片 -->
       <div id="device-grid" class="device-grid"></div>
     </section>
 
+    <!-- 视图 2：设备详情 -->
     <section id="view-detail" class="view hidden">
-      <button id="back-to-devices" class="btn-link">← 返回设备总览</button>
-      <div id="device-header" class="device-header"></div>
+      <div class="detail-top-nav">
+        <div class="breadcrumb">
+          <button id="back-to-devices" class="breadcrumb-link btn-link">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            返回设备总览
+          </button>
+          <span class="breadcrumb-separator">/</span>
+          <span id="detail-breadcrumb-id" class="breadcrumb-current">设备详情</span>
+        </div>
+      </div>
+
+      <!-- 设备基本信息横幅卡片 -->
+      <div id="device-header" class="device-banner"></div>
+
       <div class="detail-columns">
-        <div class="panel">
-          <h3>实时数据（按点表自动同步）</h3>
-          <div id="point-table-wrap" class="table-wrap"></div>
-          <h3>点表外实时值</h3>
-          <div id="unsynced-wrap" class="table-wrap"></div>
-        </div>
-        <div class="panel">
-          <h3>趋势图</h3>
-          <div class="trend-controls">
-            <select id="trend-point" class="select"></select>
-            <select id="trend-range" class="select">
-              <option value="5">最近 5 分钟</option>
-              <option value="30" selected>最近 30 分钟</option>
-              <option value="60">最近 1 小时</option>
-              <option value="360">最近 6 小时</option>
-            </select>
+        <!-- 左侧：告警与测点表格 -->
+        <div class="detail-col-left" style="display: flex; flex-direction: column; gap: 1.25rem;">
+          <!-- 设备活动告警 -->
+          <div class="card">
+            <div class="card-header border-none">
+              <div class="card-title-group">
+                <h3 class="card-title">活动告警</h3>
+                <span class="card-description">当前设备正在触发的未恢复告警</span>
+              </div>
+            </div>
+            <div class="card-content" style="padding-top: 0.5rem;">
+              <div id="device-alarms-wrap" class="table-wrap"></div>
+            </div>
           </div>
-          <div id="trend-chart" class="trend-chart"></div>
-          <div id="trend-meta" class="trend-meta"></div>
+
+          <!-- 实时点表数据 -->
+          <div class="card">
+            <div class="card-header border-none" style="flex-wrap: wrap; gap: 0.5rem;">
+              <div class="card-title-group">
+                <h3 class="card-title">实时数据（按点表自动同步）</h3>
+                <span class="card-description">板端自动上报的点表定义与实时数值</span>
+              </div>
+              <div class="search-input-wrap" style="width: 13rem;">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input type="text" id="point-search-input" class="input" placeholder="过滤测点名称/ID..." style="height: 1.875rem;" />
+              </div>
+            </div>
+            <div class="card-content" style="padding-top: 0.5rem;">
+              <div id="point-table-wrap" class="table-wrap"></div>
+            </div>
+          </div>
+
+          <!-- 点表外实时值 -->
+          <div class="card">
+            <div class="card-header border-none">
+              <div class="card-title-group">
+                <h3 class="card-title">点表外实时值</h3>
+                <span class="card-description">未在点表中注册但在 telemetry 报文中收到的测点</span>
+              </div>
+            </div>
+            <div class="card-content" style="padding-top: 0.5rem;">
+              <div id="unsynced-wrap" class="table-wrap"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右侧：趋势图表 -->
+        <div class="detail-col-right">
+          <div class="card" style="position: sticky; top: 4.5rem;">
+            <div class="card-header border-none">
+              <div class="card-title-group">
+                <h3 class="card-title">时序趋势图</h3>
+                <span class="card-description">查看指定数值测点的历史波动曲线</span>
+              </div>
+            </div>
+            <div class="card-content" style="padding-top: 0.5rem;">
+              <div class="trend-header-controls">
+                <select id="trend-point" class="select" style="max-width: 14rem;"></select>
+                <div class="range-pills" id="trend-range-pills">
+                  <button class="range-btn" data-minutes="5">5m</button>
+                  <button class="range-btn active" data-minutes="30">30m</button>
+                  <button class="range-btn" data-minutes="60">1h</button>
+                  <button class="range-btn" data-minutes="360">6h</button>
+                </div>
+                <!-- 保持原 select 用于代码兼容性 -->
+                <select id="trend-range" class="select" style="display: none;">
+                  <option value="5">最近 5 分钟</option>
+                  <option value="30" selected>最近 30 分钟</option>
+                  <option value="60">最近 1 小时</option>
+                  <option value="360">最近 6 小时</option>
+                </select>
+              </div>
+
+              <!-- 统计指标条 -->
+              <div class="trend-stats-bar" id="trend-stats-bar" style="display: none;">
+                <div class="trend-stat-item">
+                  <span class="trend-stat-label">最新值</span>
+                  <span class="trend-stat-value" id="trend-stat-latest">-</span>
+                </div>
+                <div class="trend-stat-item">
+                  <span class="trend-stat-label">最小值</span>
+                  <span class="trend-stat-value" id="trend-stat-min">-</span>
+                </div>
+                <div class="trend-stat-item">
+                  <span class="trend-stat-label">最大值</span>
+                  <span class="trend-stat-value" id="trend-stat-max">-</span>
+                </div>
+                <div class="trend-stat-item">
+                  <span class="trend-stat-label">平均值</span>
+                  <span class="trend-stat-value" id="trend-stat-avg">-</span>
+                </div>
+              </div>
+
+              <!-- 图表容器 -->
+              <div id="trend-chart" class="trend-chart-wrap"></div>
+              <div id="trend-meta" class="trend-meta"></div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
 
+    <!-- 视图 3：告警中心 -->
     <section id="view-alarms" class="view hidden">
-      <div class="panel">
-        <h3>活动告警</h3>
-        <div id="active-alarms" class="table-wrap"></div>
-      </div>
-      <div class="panel">
-        <h3>告警事件历史</h3>
-        <div id="alarm-events" class="table-wrap"></div>
+      <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+        <div class="card">
+          <div class="card-header border-none">
+            <div class="card-title-group">
+              <h3 class="card-title">当前活动告警</h3>
+              <span class="card-description">全网未恢复的告警列表</span>
+            </div>
+          </div>
+          <div class="card-content" style="padding-top: 0.5rem;">
+            <div id="active-alarms" class="table-wrap"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header border-none">
+            <div class="card-title-group">
+              <h3 class="card-title">告警事件历史</h3>
+              <span class="card-description">全部设备告警触发与恢复的历史记录</span>
+            </div>
+          </div>
+          <div class="card-content" style="padding-top: 0.5rem;">
+            <div id="alarm-events" class="table-wrap"></div>
+          </div>
+        </div>
       </div>
     </section>
 
+    <!-- 视图 4：原始报文 -->
     <section id="view-messages" class="view hidden">
-      <div class="panel">
-        <h3>最近收到的原始报文（含隔离消息）</h3>
-        <div id="raw-messages" class="table-wrap"></div>
+      <div class="card">
+        <div class="card-header border-none">
+          <div class="card-title-group">
+            <h3 class="card-title">最近收到的原始报文</h3>
+            <span class="card-description">用于设备联调与诊断的实时 MQTT 报文流（含被隔离的异常报文）</span>
+          </div>
+        </div>
+        <div class="card-content" style="padding-top: 0.5rem;">
+          <div id="raw-messages" class="table-wrap"></div>
+        </div>
       </div>
     </section>
   </main>

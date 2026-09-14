@@ -37,6 +37,13 @@ scripts/                # Local no-broker demo
 - Logging is shared through `dashboard.observability`, not copied per layer.
 - The development publisher is not part of the read-only collector runtime.
 
+## Web Frontend (`dashboard/web/`)
+
+- Served directly by `dashboard/http/server.py` (`index.html`, `styles.css`, `app.js`).
+- **Zero-build design**: pure modern CSS + vanilla JS (ES2020+), zero external node/npm build dependencies.
+- **Design System**: adheres to shadcn/ui Zinc palette (CSS variables `:root` and `.dark`), KPI metrics grid, modern data tables, and interactive SVG trend charts with gradient fill and hover tooltips.
+- **Client Polling**: read-only polling via GET JSON endpoints with signature caching (`renderIfChanged`) to prevent DOM replacement from interrupting user interactions.
+
 ## Naming and Placement
 
 Preserve wire names such as `device_id`, `alarm_id`, `ts_ms`, `uptime_ms`,
@@ -46,3 +53,4 @@ duplicated parsers or state machines.
 
 Only `dashboard*` packages and `dashboard/web/*` runtime assets are distributed.
 Do not scaffold modules for unimplemented firmware or cloud capabilities.
+
